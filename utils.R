@@ -4,6 +4,8 @@
 # Date: 01/06/2025
 ##################################
 
+source("PRForest.R")
+library(randomForest)
 
 evaluate_pr_forest <- function(X_train, y_train, X_test, y_test,
                                n_trees = 100, sample_frac = 0.8,
@@ -154,3 +156,55 @@ montecarlo_compare_prforest_rf <- function(dgp_function, n_reps = 30, n = 500, t
   )
 }
 
+
+
+# Function to compare different models
+montecarlo_compare_models <- function(dgp_fun,
+                                      model_list,
+                                      n_train = 200,
+                                      n_test = 1000,
+                                      B = 30,
+                                      seed = 42,
+                                      verbose = TRUE) {
+  set.seed(seed)
+  results <- list()
+  method_names <- names(model_list)
+  
+  # Initialize matrix B x num_methods
+  mse_matrix <- matrix(NA, nrow = B, ncol = length(model_list))
+  colnames(mse_matrix) <- method_names
+  
+  for (b in 1:B) {
+    if (verbose) cat(sprintf("Simulation %d/%d\n", b, B))
+    
+    train_data <- dgp_fun(n_train)
+    test_data <- dgp_fun(n_test)
+    
+    X_train <- as.data.frame(train_data$X)
+    y_train <- train_data$y
+    X_test <- as.data.frame(test_data$X)
+    y_test <- test_data$y
+    
+    for (m in seq_along(model_list)) {
+      method <- model_list[[m]]
+      method_name <- method_names[m]
+      
+      # Train
+      model <- do.call(method$fit, c(list(X = X_train, y = y_train), method$params))
+      
+      # Predict
+      preds <- method$predict(model, X_test)
+      
+      # Compute MSE
+      mse_matrix[b, m] <- mean((y_test - preds)^2)
+    }
+  }
+  
+  mse_df <- as.data.frame(mse_matrix)
+  
+  return(list(
+    mse_matrix = mse_matrix,
+    mse_summary = apply(mse_matrix, 2, function(x) c(mean = mean(x), sd = sd(x))),
+    mse_df = mse_df
+  ))
+}

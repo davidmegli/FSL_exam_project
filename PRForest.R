@@ -4,6 +4,8 @@
 # Date: 01/06/2025
 ##################################
 
+library(PRTree)
+
 # Funzione di training: ensemble di PR Trees
 fit_pr_forest <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...) {
   set.seed(seed)

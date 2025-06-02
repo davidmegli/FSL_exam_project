@@ -1,0 +1,21 @@
+useDynLib(pilot, .registration=TRUE)
+
+import(Rcpp)
+import(methods)
+import(ggplot2)
+import(ggparty)
+import(partykit)
+importFrom("utils", "capture.output", "head", "tail")
+importFrom("stats", "sd", "setNames")
+
+export(pilot)
+export(PILOTcpp)
+S3method(predict, PILOT)
+S3method(plot, PILOT)
+S3method(print, PILOT)
+
+export(raffle)
+export(RAFFLEcpp)
+S3method(predict, RAFFLE)
+S3method(plot, RAFFLE)
+S3method(print, RAFFLE)

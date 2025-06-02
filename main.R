@@ -6,14 +6,21 @@
 
 ##### Setup & dati
 
+library(devtools)
+#devtools::install_github("STAN-UAntwerp/PILOT@pilot-in-R") # uncomment to install PILOT library
+library(PILOT)
+
 source("DGPs.R")
 source("PRForest.R")
+source("RaFFLE.R")
 source("utils.R")
 # Pacchetti
 library(PRTree)
 library(MASS)
 library(randomForest)
 library(rlang)
+library(party)
+library(ipred)
 
 # Dataset Boston
 data(Boston)
@@ -123,9 +130,40 @@ res <- montecarlo_compare_prforest_rf(
 print(res$summary)
 
 
+### Example use of comparison
+
+# declaration of models
+model_list <- list(
+  RaFFLE = list(
+    fit = raffle,
+    predict = function(model, newdata) predict(model, newdata = newdata),
+    params = list(nTrees = 50, alpha = 0.5, maxDepth = 10)
+  ),
+  
+  PRForest = list(
+    fit = function(X, y, ...) fit_pr_forest(y = y, X = X, ...),
+    predict = function(model, newdata) predict_pr_forest(model, newdata)$yhat,
+    params = list(n_trees = 100, sample_frac = 0.8, seed = 42)
+  )
+)
+
+# predict and compare
+results <- montecarlo_compare_models(
+  dgp_fun = dgp_linear,
+  model_list = model_list,
+  n_train = 200,
+  n_test = 1000,
+  B = 30,
+  seed = 123
+)
+
+print(results$mse_summary)
+boxplot(results$mse_df, main = "MSE comparison", ylab = "MSE")
+
+
 
 #' TODO:
 #' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)
 #' e avere un'insieme di stime (miglior approccio statistico)
-#' - implementare RaFFLE
+#' - usa RaFFLE da libreria PILOT
 #' - implementare ERF
