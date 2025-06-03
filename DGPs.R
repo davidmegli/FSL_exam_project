@@ -4,6 +4,14 @@
 # Date: 01/06/2025
 ##################################
 
+dgp_linear <- function(n, p = 5, sigma = 1) {
+  X <- matrix(rnorm(n * p), nrow = n, ncol = p)
+  colnames(X) <- paste0("X", 1:p)
+  y <- X[, 1] + 2 * X[, 2] + rnorm(n, 0, sigma)
+  list(X = as.data.frame(X), y = y)
+}
+
+
 # DGP 1: Lineare omoschedastico
 dgp_linear_homoskedastic <- function(n = 500) {
   x <- runif(n, 0, 10)
@@ -58,4 +66,14 @@ dgp_highdim_sparse <- function(n = 500, p = 50) {
   # Solo le prime 3 variabili sono informative
   y <- 2 * X[, 1] - 1.5 * X[, 2] + sin(X[, 3]) + rnorm(n, sd = 1)
   list(X = X, y = y)
+}
+
+
+dgp_binary <- function(n, p = 5) {
+  X <- matrix(rnorm(n * p), nrow = n)
+  colnames(X) <- paste0("X", 1:p)
+  logits <- X[, 1] - 0.5 * X[, 2]
+  prob <- 1 / (1 + exp(-logits))
+  y <- rbinom(n, 1, prob)
+  list(X = as.data.frame(X), y = y)
 }

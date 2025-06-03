@@ -177,6 +177,8 @@ montecarlo_compare_models <- function(dgp_fun,
   for (b in 1:B) {
     if (verbose) cat(sprintf("Simulation %d/%d\n", b, B))
     
+    set.seed(seed + b)  # <--- cambio seed a ogni iterazione
+    
     train_data <- dgp_fun(n_train)
     test_data <- dgp_fun(n_test)
     
@@ -184,6 +186,10 @@ montecarlo_compare_models <- function(dgp_fun,
     y_train <- train_data$y
     X_test <- as.data.frame(test_data$X)
     y_test <- test_data$y
+    
+    #TODO: delete next lines
+    cat("\ny_test: \n")
+    cat(y_test)
     
     for (m in seq_along(model_list)) {
       method <- model_list[[m]]
@@ -197,6 +203,10 @@ montecarlo_compare_models <- function(dgp_fun,
       
       # Compute MSE
       mse_matrix[b, m] <- mean((y_test - preds)^2)
+      
+      #TODO: delete next lines
+      cat("\npreds: \n")
+      cat(preds)
     }
   }
   
