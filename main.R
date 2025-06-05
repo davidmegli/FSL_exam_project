@@ -122,9 +122,12 @@ str(pred)
 #' TODO:
 #' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)
 #' e avere un'insieme di stime (miglior approccio statistico)
-#' - implementare ERF (?)
-#' - Confrontare con 10 datasets + 1 DGP ottimale per ogni metodo
+#' - confrontare anche con LightGBM
+#' - Da valutare: BoostForest, 
+#' - Confrontare con 10 datasets (classification / regression) + 1 DGP ottimale per ogni metodo
 #' - Confrontare con XGBoost, RandomForest, CART, Adaboost (vedi paper ERF)
+#' - Confronti: qualitativo (boxplots per vari DGP e datasets) + quantitativo (RMSE(AVG+STD) 4 regression/Classification accuracy(AVG+STD))
+#' -> prendere spunto da https://arxiv.org/pdf/2003.09737 per confronti tabellari
 #' - Tunare iperparametri di ogni modello con nested cross validation
 #' - Per il confronto usare i modelli con migliori iperparametri
 #' - Usare + metriche di confronto
