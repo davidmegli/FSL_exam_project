@@ -6,6 +6,11 @@
 
 source("PRForest.R")
 library(randomForest)
+library(pROC)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(purrr)
 
 evaluate_pr_forest <- function(X_train, y_train, X_test, y_test,
                                n_trees = 100, sample_frac = 0.8,
@@ -157,7 +162,6 @@ montecarlo_compare_prforest_rf <- function(dgp_function, n_reps = 30, n = 500, t
 }
 
 
-
 # Function to compare different models
 montecarlo_compare_models <- function(dgp_fun,
                                       model_list,
@@ -187,10 +191,6 @@ montecarlo_compare_models <- function(dgp_fun,
     X_test <- as.data.frame(test_data$X)
     y_test <- test_data$y
     
-    #TODO: delete next lines
-    cat("\ny_test: \n")
-    cat(y_test)
-    
     for (m in seq_along(model_list)) {
       method <- model_list[[m]]
       method_name <- method_names[m]
@@ -203,10 +203,6 @@ montecarlo_compare_models <- function(dgp_fun,
       
       # Compute MSE
       mse_matrix[b, m] <- mean((y_test - preds)^2)
-      
-      #TODO: delete next lines
-      cat("\npreds: \n")
-      cat(preds)
     }
   }
   
@@ -222,105 +218,324 @@ montecarlo_compare_models <- function(dgp_fun,
 
 montecarlo_compare_models_tuned <- function(dgp_fun,
                                             model_list,
-                                            n_train = 300,
+                                            n_train = 200,
                                             n_test = 1000,
                                             B = 30,
                                             K = 5,
                                             seed = 42,
+                                            task = c("reg", "class"),
                                             verbose = TRUE) {
+  task <- match.arg(task)
   set.seed(seed)
+  
   method_names <- names(model_list)
-  n_models <- length(model_list)
+  metrics_list <- vector("list", length(model_list))
+  names(metrics_list) <- method_names
   
-  mse_matrix <- matrix(NA, nrow = B, ncol = n_models)
-  colnames(mse_matrix) <- method_names
-  
-  best_param_list <- vector("list", n_models)
-  names(best_param_list) <- method_names
-  for (m in method_names) best_param_list[[m]] <- vector("list", B)
-  
-  for (b in 1:B) {
-    if (verbose) cat(sprintf("Simulation %d/%d\n", b, B))
-    
-    # Diversificare la DGP per ogni simulazione
-    set.seed(seed + b)
-    train_data <- dgp_fun(n_train)
-    test_data <- dgp_fun(n_test)
-    
-    X_train <- as.data.frame(train_data$X)
-    y_train <- train_data$y
-    X_test <- as.data.frame(test_data$X)
-    y_test <- test_data$y
-    
-    for (m in seq_along(model_list)) {
-      method <- model_list[[m]]
-      method_name <- method_names[m]
-      param_grid <- method$params
-      
-      best_model <- NULL
-      best_params <- NULL
-      best_cv_mse <- Inf
-      
-      for (params in param_grid) {
-        # Cross-validation
-        cv_mse <- numeric(K)
-        folds <- sample(rep(1:K, length.out = n_train))
-        
-        for (k in 1:K) {
-          idx_valid <- which(folds == k)
-          idx_train <- setdiff(seq_len(n_train), idx_valid)
-          
-          X_cv_train <- X_train[idx_train, , drop = FALSE]
-          y_cv_train <- y_train[idx_train]
-          X_cv_valid <- X_train[idx_valid, , drop = FALSE]
-          y_cv_valid <- y_train[idx_valid]
-          
-          model <- tryCatch({
-            do.call(method$fit, c(list(X = X_cv_train, y = y_cv_train), params))
-          }, error = function(e) NULL)
-          
-          preds <- tryCatch({
-            if (!is.null(model)) method$predict(model, X_cv_valid)
-            else rep(NA, length(y_cv_valid))
-          }, error = function(e) rep(NA, length(y_cv_valid)))
-          
-          if (any(is.na(preds)) || length(preds) != length(y_cv_valid)) {
-            cv_mse[k] <- Inf
-          } else {
-            cv_mse[k] <- mean((y_cv_valid - preds)^2)
-          }
-        }
-        
-        avg_cv_mse <- mean(cv_mse)
-        if (avg_cv_mse < best_cv_mse) {
-          best_cv_mse <- avg_cv_mse
-          best_params <- params
-          best_model <- tryCatch({
-            do.call(method$fit, c(list(X = X_train, y = y_train), params))
-          }, error = function(e) NULL)
-        }
-      }
-      
-      # Final evaluation on test set
-      preds_test <- tryCatch({
-        method$predict(best_model, X_test)
-      }, error = function(e) rep(NA, length(y_test)))
-      
-      if (any(is.na(preds_test)) || length(preds_test) != length(y_test)) {
-        mse_matrix[b, m] <- NA
-      } else {
-        mse_matrix[b, m] <- mean((y_test - preds_test)^2)
-      }
-      best_param_list[[method_name]][[b]] <- best_params
+  # Output storage
+  for (name in method_names) {
+    if (task == "reg") {
+      metrics_list[[name]] <- list(
+        mse = numeric(B),
+        rmse = numeric(B),
+        mae = numeric(B),
+        r2 = numeric(B)
+      )
+    }
+    else {
+      metrics_list[[name]] <- list(
+        acc = numeric(B),
+        logloss = numeric(B),
+        auc = numeric(B),
+        f1 = numeric(B),
+        balanced_acc = numeric(B)
+      )
     }
   }
   
-  mse_df <- as.data.frame(mse_matrix)
+  best_params_list <- vector("list", length(model_list))
+  names(best_params_list) <- method_names
+  
+  for (b in 1:B) {
+    if (verbose) cat(sprintf("Simulation %d/%d\n", b, B))
+    set.seed(seed + b)
+    
+    data_train <- dgp_fun(n_train)
+    data_test <- dgp_fun(n_test)
+    X_train <- as.data.frame(data_train$X)
+    y_train <- data_train$y
+    X_test <- as.data.frame(data_test$X)
+    y_test <- data_test$y
+    
+    for (m in seq_along(model_list)) {
+      method <- model_list[[m]]
+      fit_fun <- method$fit
+      predict_fun <- method$predict
+      param_grid <- method$params
+      
+      best_score <- Inf
+      best_model <- NULL
+      best_params <- NULL
+      
+      for (params in param_grid) {
+        scores <- c()
+        folds <- sample(rep(1:K, length.out = nrow(X_train)))
+        
+        for (k in 1:K) {
+          idx_train <- which(folds != k)
+          idx_valid <- which(folds == k)
+          X_tr <- X_train[idx_train, , drop = FALSE]
+          y_tr <- y_train[idx_train]
+          X_val <- X_train[idx_valid, , drop = FALSE]
+          y_val <- y_train[idx_valid]
+          
+          model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_tr, y = y_tr), params)),
+            error = function(e) NULL
+          )
+          if (is.null(model)) next
+          
+          preds <- tryCatch(
+            predict_fun(model, X_val),
+            error = function(e) rep(NA, length(y_val))
+          )
+          if (anyNA(preds)) next
+          
+          if (task == "reg") {
+            scores <- c(scores, mean((y_val - preds)^2))
+          } else {
+            acc <- mean(preds == y_val)
+            scores <- c(scores, 1 - acc)
+          }
+        }
+        
+        if (length(scores) == 0 || all(is.na(scores))) next
+        
+        mean_score <- mean(scores, na.rm = TRUE)
+        if (mean_score < best_score) {
+          best_score <- mean_score
+          best_params <- params
+          best_model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_train, y = y_train), best_params)),
+            error = function(e) NULL
+          )
+        }
+      }
+      
+      if (!is.null(best_model)) {
+        preds_test <- tryCatch(
+          predict_fun(best_model, X_test),
+          error = function(e) rep(NA, length(y_test))
+        )
+        
+        if (!anyNA(preds_test)) {
+          if (task == "reg") {
+            metrics_list[[m]]$mse[b] <- mean((y_test - preds_test)^2)
+            metrics_list[[m]]$rmse[b] <- sqrt(metrics_list[[m]]$mse[b])
+            metrics_list[[m]]$mae[b] <- mean(abs(y_test - preds_test))
+            metrics_list[[m]]$r2[b] <- 1 - sum((y_test - preds_test)^2) / sum((y_test - mean(y_test))^2)
+          } else {
+            if (is.factor(y_test) || is.character(y_test)) y_test <- as.factor(y_test)
+            y_pred_class <- if (is.numeric(preds_test)) {
+              if (length(unique(y_test)) == 2) as.factor(ifelse(preds_test > 0.5, levels(y_test)[2], levels(y_test)[1]))
+              else as.factor(apply(matrix(preds_test, ncol = length(unique(y_test))), 1, which.max))
+            } else {
+              as.factor(preds_test)
+            }
+            
+            metrics_list[[m]]$acc[b] <- mean(y_test == y_pred_class)
+            
+            # F1-score e Balanced Accuracy
+            conf_mat <- table(Predicted = y_pred_class, Actual = y_test)
+            classes <- union(levels(y_test), levels(y_pred_class))
+            
+            # Ensure all levels are present
+            conf_mat <- as.matrix(table(factor(y_pred_class, levels = classes),
+                                        factor(y_test, levels = classes)))
+            
+            # F1-score macro
+            precisions <- recalls <- f1s <- numeric(length(classes))
+            for (i in seq_along(classes)) {
+              TP <- conf_mat[i, i]
+              FP <- sum(conf_mat[i, ]) - TP
+              FN <- sum(conf_mat[, i]) - TP
+              precisions[i] <- if ((TP + FP) == 0) NA else TP / (TP + FP)
+              recalls[i] <- if ((TP + FN) == 0) NA else TP / (TP + FN)
+              f1s[i] <- if (is.na(precisions[i]) || is.na(recalls[i]) || (precisions[i] + recalls[i]) == 0) {
+                NA
+              } else {
+                2 * precisions[i] * recalls[i] / (precisions[i] + recalls[i])
+              }
+            }
+            metrics_list[[m]]$f1[b] <- mean(f1s, na.rm = TRUE)
+            
+            # Balanced Accuracy
+            sensitivity <- recall <- diag(conf_mat) / colSums(conf_mat)
+            specificity <- diag(conf_mat) / rowSums(conf_mat)
+            balanced_acc <- mean(sensitivity, na.rm = TRUE)
+            metrics_list[[m]]$balanced_acc[b] <- balanced_acc
+            
+            if (length(unique(y_test)) == 2 && is.numeric(preds_test)) {
+              # AUC and LogLoss for binary classification
+              metrics_list[[m]]$auc[b] <- tryCatch({
+                roc_obj <- roc(y_test, preds_test)
+                as.numeric(auc(roc_obj))
+              }, error = function(e) NA)
+              
+              eps <- 1e-15
+              preds_clipped <- pmin(pmax(preds_test, eps), 1 - eps)
+              logloss <- -mean(y_test * log(preds_clipped) + (1 - y_test) * log(1 - preds_clipped))
+              metrics_list[[m]]$logloss[b] <- logloss
+            }
+          }
+        }
+        best_params_list[[m]] <- best_params
+      }
+    }
+  }
+  
+  summary_metrics <- lapply(metrics_list, function(m) {
+    sapply(m, function(metric) {
+      if (all(is.na(metric))) return(c(mean = NA, sd = NA))
+      c(mean = mean(metric, na.rm = TRUE), sd = sd(metric, na.rm = TRUE))
+    })
+  })
   
   return(list(
-    mse_matrix = mse_matrix,
-    mse_summary = apply(mse_matrix, 2, function(x) c(mean = mean(x), sd = sd(x))),
-    mse_df = mse_df,
-    best_params = best_param_list
+    metrics = metrics_list,
+    summary = summary_metrics,
+    best_params = best_params_list
   ))
+}
+
+
+montecarlo_compare_plot_models <- function(
+    dgp_fun,
+    model_list,
+    n_train,
+    n_test,
+    task = "reg",
+    B = 5,
+    K = 3,
+    seed = 42,
+    run_name = NULL
+) {
+  library(purrr)
+  library(dplyr)
+  
+  # Nome DGP se run_name non specificato
+  if (is.null(run_name)) {
+    run_name <- paste0(task,"_",deparse(substitute(dgp_fun)))
+  }
+  
+  # Esegui confronto Monte Carlo
+  results <- montecarlo_compare_models_tuned(
+    dgp_fun = dgp_fun,
+    model_list = model_list,
+    n_train = n_train,
+    n_test = n_test,
+    task = task,
+    B = B,
+    K = K,
+    seed = seed
+  )
+  # Estrai e riformatta le metriche
+  metrics_long <- purrr::imap_dfr(results$metrics, function(metrics, model) {
+    if (is.null(metrics) || length(metrics) == 0) {
+      warning(paste("No metrics for model:", model))
+      return(NULL)
+    }
+    purrr::imap_dfr(metrics, function(values, metric) {
+      if (is.null(values)) {
+        warning(paste("No values for metric:", metric, "in model:", model))
+        return(NULL)
+      }
+      data.frame(
+        Model = model,
+        Metric = metric,
+        Value = values
+      )
+    })
+  })
+  
+  # Salva i plot per ogni metrica
+  unique_metrics <- unique(metrics_long$Metric)
+  for (m in unique_metrics) {
+    save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DGP", run_name = run_name)
+  }
+  
+  return(invisible(results))
+}
+
+
+montecarlo_compare_plot_models_multiDGP <- function(
+    dgp_list,
+    model_list,
+    n_train,
+    n_test,
+    task = "reg",
+    B = 5,
+    K = 3,
+    seed = 42
+) {
+  results_all <- list()
+  
+  for (i in seq_along(dgp_list)) {
+    dgp_fun <- dgp_list[[i]]
+    dgp_name <- names(dgp_list)[i]
+    if (is.null(dgp_name) || dgp_name == "") {
+      dgp_name <- paste0("DGP", i)
+    }
+    run_name <- paste0(task,"_",dgp_name)
+    message("Eseguendo confronto su: ", dgp_name)
+    
+    results <- montecarlo_compare_plot_models(
+      dgp_fun = dgp_fun,
+      model_list = model_list,
+      n_train = n_train,
+      n_test = n_test,
+      task = task,
+      B = B,
+      K = K,
+      seed = seed,
+      run_name = run_name
+    )
+    
+    results_all[[dgp_name]] <- results
+  }
+  
+  return(results_all)
+}
+
+
+
+
+save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots", run_name = "") {
+  # Filtro metrica desiderata
+  plot_data <- metrics_long %>% filter(Metric == metric_name)
+  
+  # Crea grafico
+  p <- ggplot(plot_data, aes(x = Model, y = Value, fill = Model)) +
+    geom_boxplot() +
+    labs(
+      title = "",#paste("", toupper(metric_name), ""),
+      y = toupper(metric_name), x = ""
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      text = element_text(size = 18),          # dimensione base del testo
+      axis.title.y = element_text(size = 22),  # dimensione titolo asse y
+      axis.text = element_text(size = 16)      # dimensione numeri sugli assi
+    )
+  
+  # Crea timestamp per nome file
+  timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+  filename <- paste0("boxplot_", run_name, "_", metric_name, "_", timestamp, ".png")
+  filepath <- file.path(output_dir, filename)
+  
+  # Salva in PNG
+  ggsave(filepath, plot = p, width = 8, height = 5, dpi = 100)
+  
+  message("Plot salvato in: ", filepath)
 }

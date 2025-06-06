@@ -15,36 +15,24 @@ library(RaFFLE)
 source("DGPs.R")
 source("PRForest.R")
 source("RaFFLE.R")
-
 source("utils.R")
 # Pacchetti
 library(PRTree)
 library(MASS)
 library(randomForest)
 library(xgboost)
+library(lightgbm)
 library(rlang)
 library(party)
 library(ipred)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(mlbench)
+library(ISLR)
+library(caret)
 
-
-##### PRForest vs Random Forest
-
-# Esegui Monte Carlo
-res <- montecarlo_compare_prforest_rf(
-  dgp_function = dgp_heteroskedastic,
-  n_reps = 30,
-  prtree_args = list(max_terminal_nodes = 9),
-  rf_args = list(),
-  plot = TRUE
-)
-
-# Risultati riassuntivi
-print(res$summary)
-
-
-##### Example use of comparison
-
-# declaration of models
+##### declaration of models
 model_list <- list(
   RaFFLE = list(
     fit = raffle,
@@ -96,29 +84,137 @@ model_list <- list(
       list(nrounds = 100, max_depth = 5, eta = 0.2),
       list(nrounds = 100, max_depth = 6, eta = 0.2)
     )
+  ),
+  LightGBM = list(
+    fit = function(X, y, ...) {
+      dtrain <- lightgbm::lgb.Dataset(data = as.matrix(X), label = y)
+      lightgbm::lgb.train(params = list(objective = "regression", metric = "l2", ...),
+                          data = dtrain, nrounds = 100, verbose = -1)
+    },
+    predict = function(model, newdata) {
+      predict(model, as.matrix(newdata))
+    },
+    params = list(
+      list(learning_rate = 0.01, num_leaves = 31, max_depth = -1),
+      list(learning_rate = 0.05, num_leaves = 31, max_depth = -1),
+      list(learning_rate = 0.1, num_leaves = 31, max_depth = -1),
+      list(learning_rate = 0.01, num_leaves = 15, max_depth = -1),
+      list(learning_rate = 0.05, num_leaves = 15, max_depth = -1),
+      list(learning_rate = 0.1, num_leaves = 15, max_depth = -1)
+    )
   )
 )
 
-# predict and compare
-results <- montecarlo_compare_models_tuned(
-  dgp_fun = dgp_heteroskedastic,
+##### DGPs
+dgp_reg_list <- list(
+  dgp_nonlin_hetero,
+  dgp_pure_interaction,
+  dgp_sparse,
+  dgp_piecewise,
+  dgp_latent_outlier
+)
+
+dgp_clas_list <- list(
+  dgp_xor,
+  dgp_logit_noise,
+  dgp_hierarchy,
+  dgp_imbalanced,
+  dgp_moons
+)
+names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
+names(dgp_clas_list) <- c("xor", "logit_noise", "hierarchy", "imbalanced", "moons")
+
+# Predict and compare on DGPs
+results <- montecarlo_compare_plot_models_multiDGP(
+  dgp_list = dgp_reg_list,
   model_list = model_list,
   n_train = 200,
   n_test = 100,
+  task = "reg",
   B = 10,
   K = 3,
   seed = 42
 )
 
-print(results$mse_summary)
-results$best_params$XGBoost[[1]]  # Best parametri per la prima simulazione
+results <- montecarlo_compare_plot_models_multiDGP(
+  dgp_list = dgp_clas_list,
+  model_list = model_list,
+  n_train = 200,
+  n_test = 100,
+  task = "clas",
+  B = 10,
+  K = 3,
+  seed = 42
+)
+
+##### DATASETS
+
+# Funzione di splitting train/test
+split_dataset <- function(data, target_col, split_ratio = 0.7) {
+  set.seed(123)
+  idx <- createDataPartition(data[[target_col]], p = split_ratio, list = FALSE)
+  list(
+    train = data[idx, ],
+    test = data[-idx, ]
+  )
+}
+
+# Dataset di regressione
+data(Boston)         # MASS
+data(Hitters)        # ISLR
+data(airquality)     # datasets
+data(cars)           # datasets
+data(Orange)         # datasets
+
+reg_data_list <- list(
+  boston = split_dataset(Boston, "medv"),
+  hitters = split_dataset(na.omit(Hitters), "Salary"),
+  airquality = split_dataset(na.omit(airquality), "Ozone"),
+  cars = split_dataset(cars, "dist"),
+  orange = split_dataset(Orange %>% group_by(Tree) %>% slice(1), "circumference")  # solo 1 osservazione per Tree
+)
 
 
-print(results$mse_summary)
-boxplot(results$mse_df, main = "MSE comparison", ylab = "MSE", col = rainbow(ncol(results$mse_df)))
+# Dataset di classificazione
+data(PimaIndiansDiabetes)  # mlbench
+data(Sonar)                # mlbench
+data(Ionosphere)           # mlbench
+data(Glass)                # mlbench
+data(Smarket)              # ISLR
 
-pred <- predict(object[[1]], newdata)
-str(pred)
+class_data_list <- list(
+  pima = split_dataset(PimaIndiansDiabetes, "diabetes"),
+  sonar = split_dataset(Sonar, "Class"),
+  ionosphere = split_dataset(Ionosphere, "Class"),
+  glass = split_dataset(Glass, "Type"),
+  smarket = split_dataset(Smarket, "Direction")
+)
+
+
+##### Prediction on Datasets
+
+# Confronto per regressione
+results_reg <- montecarlo_compare_plot_datasets_multi(
+  dataset_list = reg_data_list,
+  model_list = model_list,
+  task = "reg",
+  B = 5,
+  K = 3,
+  seed = 42
+)
+
+# Confronto per classificazione
+results_class <- montecarlo_compare_plot_datasets_multi(
+  dataset_list = class_data_list,
+  model_list = model_list,
+  task = "class",
+  B = 5,
+  K = 3,
+  seed = 42
+)
+
+
+
 #' TODO:
 #' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)
 #' e avere un'insieme di stime (miglior approccio statistico)
@@ -136,3 +232,8 @@ str(pred)
 #' - Implementare comparison function con dataset con nested cv
 #' - assicurarsi che i DGP siano corretti e ideali per i modelli
 #' - Implementare funzione wrapper che esegue comparazioni con diversi DGP e dataset (regressione + classificazione)
+#' 
+#' 
+#' LightGBM DGBF BoostForest <- confrontare?
+#' studia papers e background (chiedi i paper necessari x la teoria)
+#' scrivi bozza script

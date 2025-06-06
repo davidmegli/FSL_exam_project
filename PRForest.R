@@ -31,14 +31,15 @@ predict_pr_forest <- function(object, newdata) {
   n_trees <- attr(object, "n_trees")
   preds <- matrix(0, nrow = nrow(newdata), ncol = n_trees)
 
-  # TODO: remove next 2 test lines
-  pred <- predict(object[[1]], newdata)
-  str(pred$yhat)
-  
-  
   for (i in seq_len(n_trees)) {
     pred <- predict(object[[i]], newdata)
-    preds[, i] <- pred$yhat
+    if (is.list(pred) && "yhat" %in% names(pred)) {
+      preds[, i] <- pred$yhat
+    } else if (is.numeric(pred)) {
+      preds[, i] <- pred
+    } else {
+      stop("Unexpected prediction output in PRForest.")
+    }
   }
   
   yhat_mean <- rowMeans(preds)
