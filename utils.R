@@ -464,6 +464,8 @@ montecarlo_compare_plot_models <- function(
     save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DGP", run_name = run_name)
   }
   
+  save_metrics_to_csv(metrics_long, output_dir = "results/DGP", run_name = run_name)
+  
   return(invisible(results))
 }
 
@@ -538,4 +540,197 @@ save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots",
   ggsave(filepath, plot = p, width = 8, height = 5, dpi = 100)
   
   message("Plot salvato in: ", filepath)
+}
+
+
+
+montecarlo_compare_plot_dataset <- function(
+    dataset,  # lista con train e test
+    model_list,
+    task = "reg",
+    B = 5,
+    K = 3,
+    seed = 42,
+    run_name = NULL
+) {
+  library(purrr)
+  library(dplyr)
+  
+  if (is.null(run_name)) {
+    run_name <- paste0(task, "_dataset")
+  }
+  
+  # Funzione wrapper per fornire il dataset ogni volta come fosse una DGP
+  dgp_fun <- function(n) {
+    list(
+      X = dataset[[ifelse(n <= nrow(dataset$train), "train", "test")]][, -ncol(dataset$train)],
+      y = dataset[[ifelse(n <= nrow(dataset$train), "train", "test")]][, ncol(dataset$train)]
+    )
+  }
+  
+  # Chiamata alla funzione già definita
+  results <- montecarlo_compare_models_tuned(
+    dgp_fun = dgp_fun,
+    model_list = model_list,
+    n_train = nrow(dataset$train),
+    n_test = nrow(dataset$test),
+    task = task,
+    B = B,
+    K = K,
+    seed = seed
+  )
+  
+  metrics_long <- purrr::imap_dfr(results$metrics, function(metrics, model) {
+    if (is.null(metrics) || length(metrics) == 0) {
+      warning(paste("No metrics for model:", model))
+      return(NULL)
+    }
+    purrr::imap_dfr(metrics, function(values, metric) {
+      if (is.null(values)) {
+        warning(paste("No values for metric:", metric, "in model:", model))
+        return(NULL)
+      }
+      data.frame(
+        Model = model,
+        Metric = metric,
+        Value = values
+      )
+    })
+  })
+  
+  unique_metrics <- unique(metrics_long$Metric)
+  for (m in unique_metrics) {
+    save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DATA", run_name = run_name)
+  }
+  
+  save_metrics_to_csv(metrics_long, output_dir = "results/DATA", run_name = run_name)
+  
+  return(invisible(results))
+}
+
+
+
+montecarlo_compare_plot_datasets_multi <- function(
+    dataset_list,
+    model_list,
+    task = "reg",
+    B = 5,
+    K = 3,
+    seed = 42
+) {
+  results_all <- list()
+  
+  for (i in seq_along(dataset_list)) {
+    dataset <- dataset_list[[i]]
+    dataset_name <- names(dataset_list)[i]
+    if (is.null(dataset_name) || dataset_name == "") {
+      dataset_name <- paste0("dataset", i)
+    }
+    run_name <- paste0(task, "_", dataset_name)
+    message("Eseguendo confronto su dataset: ", dataset_name)
+    
+    results <- montecarlo_compare_plot_dataset(
+      dataset = dataset,
+      model_list = model_list,
+      task = task,
+      B = B,
+      K = K,
+      seed = seed,
+      run_name = run_name
+    )
+    
+    results_all[[dataset_name]] <- results
+  }
+  
+  return(results_all)
+}
+
+
+save_summary_table_csv <- function(
+    results_all,
+    metric_name = "mse",
+    output_dir = "results",
+    file_prefix = "summary",
+    make_plot = TRUE
+) {
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  summary_table <- lapply(names(results_all), function(name) {
+    result <- results_all[[name]]
+    metrics <- result$summary
+    
+    sapply(metrics, function(m) {
+      if (metric_name %in% rownames(m)) {
+        mean <- round(m[metric_name, "mean"], 3)
+        sd <- round(m[metric_name, "sd"], 3)
+        return(sprintf("%.3f (%.3f)", mean, sd))
+      } else {
+        return(NA)
+      }
+    })
+  })
+  
+  summary_df <- as.data.frame(do.call(rbind, summary_table))
+  rownames(summary_df) <- names(results_all)
+  
+  timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+  filename <- paste0(file_prefix, "_", metric_name, "_", timestamp, ".csv")
+  write.csv(summary_df, file.path(output_dir, filename), row.names = TRUE)
+  
+  message("Tabella riassuntiva salvata in: ", file.path(output_dir, filename))
+  
+  if (make_plot) {
+    plot_df <- summary_df
+    numeric_values <- lapply(results_all, function(result) {
+      sapply(result$summary, function(m) {
+        if (metric_name %in% rownames(m)) {
+          return(m[metric_name, "mean"])
+        } else {
+          return(NA)
+        }
+      })
+    })
+    numeric_df <- as.data.frame(do.call(rbind, numeric_values))
+    rownames(numeric_df) <- names(results_all)
+    
+    library(ggplot2)
+    library(reshape2)
+    molten <- reshape2::melt(as.matrix(numeric_df), varnames = c("DGP", "Model"), value.name = "Value")
+    
+    p <- ggplot(molten, aes(x = Model, y = DGP, fill = Value)) +
+      geom_tile(color = "white") +
+      geom_text(aes(label = round(Value, 3)), size = 5) +
+      scale_fill_gradient(low = "white", high = "steelblue") +
+      theme_minimal() +
+      theme(text = element_text(size = 16)) +
+      labs(title = paste("Heatmap -", toupper(metric_name)), x = "Model", y = "DGP/Dataset")
+    
+    plot_file <- file.path(output_dir, paste0(file_prefix, "_", metric_name, "_heatmap_", timestamp, ".png"))
+    ggsave(plot_file, plot = p, width = 10, height = 6, dpi = 100)
+    message("Plot heatmap salvato in: ", plot_file)
+  }
+}
+
+save_metrics_to_csv <- function(metrics_long, output_dir = "results", run_name = "") {
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  metrics_summary <- metrics_long %>%
+    group_by(Model, Metric) %>%
+    summarise(
+      Mean = mean(Value, na.rm = TRUE),
+      SD = sd(Value, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Filename con timestamp
+  timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+  filename <- paste0("metrics_", run_name, "_", timestamp, ".csv")
+  filepath <- file.path(output_dir, filename)
+  
+  write.csv(metrics_summary, filepath, row.names = FALSE)
+  message("Risultati salvati in: ", filepath)
 }

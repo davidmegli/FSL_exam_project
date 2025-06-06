@@ -125,7 +125,7 @@ names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewi
 names(dgp_clas_list) <- c("xor", "logit_noise", "hierarchy", "imbalanced", "moons")
 
 # Predict and compare on DGPs
-results <- montecarlo_compare_plot_models_multiDGP(
+results_reg_dgp <- montecarlo_compare_plot_models_multiDGP(
   dgp_list = dgp_reg_list,
   model_list = model_list,
   n_train = 200,
@@ -136,7 +136,26 @@ results <- montecarlo_compare_plot_models_multiDGP(
   seed = 42
 )
 
-results <- montecarlo_compare_plot_models_multiDGP(
+save_summary_table_csv(
+  results_all = results_reg_dgp,
+  metric_name = "mse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_reg_dgp,
+  metric_name = "rmse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_reg_dgp,
+  metric_name = "r2",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+
+results_clas_dgp <- montecarlo_compare_plot_models_multiDGP(
   dgp_list = dgp_clas_list,
   model_list = model_list,
   n_train = 200,
@@ -145,6 +164,37 @@ results <- montecarlo_compare_plot_models_multiDGP(
   B = 10,
   K = 3,
   seed = 42
+)
+
+save_summary_table_csv(
+  results_all = results_clas_dgp,
+  metric_name = "acc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_dgp,
+  metric_name = "auc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_dgp,
+  metric_name = "f1",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_dgp,
+  metric_name = "logloss",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_dgp,
+  metric_name = "balanced_acc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
 )
 
 ##### DATASETS
@@ -194,7 +244,7 @@ class_data_list <- list(
 ##### Prediction on Datasets
 
 # Confronto per regressione
-results_reg <- montecarlo_compare_plot_datasets_multi(
+results_reg_data <- montecarlo_compare_plot_datasets_multi(
   dataset_list = reg_data_list,
   model_list = model_list,
   task = "reg",
@@ -203,17 +253,67 @@ results_reg <- montecarlo_compare_plot_datasets_multi(
   seed = 42
 )
 
+
+save_summary_table_csv(
+  results_all = results_reg_data,
+  metric_name = "mse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_reg_data,
+  metric_name = "rmse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_reg_data,
+  metric_name = "r2",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+
+
 # Confronto per classificazione
-results_class <- montecarlo_compare_plot_datasets_multi(
+results_clas_data <- montecarlo_compare_plot_datasets_multi(
   dataset_list = class_data_list,
   model_list = model_list,
-  task = "class",
+  task = "clas",
   B = 5,
   K = 3,
   seed = 42
 )
 
-
+save_summary_table_csv(
+  results_all = results_clas_data,
+  metric_name = "acc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_data,
+  metric_name = "auc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_data,
+  metric_name = "f1",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_data,
+  metric_name = "logloss",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_clas_data,
+  metric_name = "balanced_acc",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
 
 #' TODO:
 #' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)
