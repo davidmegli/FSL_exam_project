@@ -5,33 +5,35 @@
 ##################################
 
 ##### Setup & dati
+import_libraries <- function() {
+  library(devtools)
+  # uncomment the next line to install PILOT R library
+  #devtools::install_github("STAN-UAntwerp/PILOT", ref="pilot-in-R", build_vignettes = TRUE, force = TRUE)
+  library(pilot)
+  #library(RaFFLE)
+  
+  source("DGPs.R")
+  source("PRForest.R")
+  source("RaFFLE.R")
+  source("utils.R")
+  # Pacchetti
+  library(PRTree)
+  library(MASS)
+  library(randomForest)
+  library(xgboost)
+  library(lightgbm)
+  library(rlang)
+  library(party)
+  library(ipred)
+  library(tidyr)
+  library(dplyr)
+  library(ggplot2)
+  library(mlbench)
+  library(ISLR)
+  library(caret)
+}
 
-library(devtools)
-# uncomment the next line to install PILOT R library
-#devtools::install_github("STAN-UAntwerp/PILOT", ref="pilot-in-R", build_vignettes = TRUE, force = TRUE)
-library(pilot)
-library(RaFFLE)
-
-source("DGPs.R")
-source("PRForest.R")
-source("RaFFLE.R")
-source("utils.R")
-# Pacchetti
-library(PRTree)
-library(MASS)
-library(randomForest)
-library(xgboost)
-library(lightgbm)
-library(rlang)
-library(party)
-library(ipred)
-library(tidyr)
-library(dplyr)
-library(ggplot2)
-library(mlbench)
-library(ISLR)
-library(caret)
-
+import_libraries()
 ##### declaration of models
 model_list <- list(
   RaFFLE = list(
@@ -107,9 +109,9 @@ model_list <- list(
 
 ##### DGPs
 dgp_reg_list <- list(
-  dgp_nonlin_hetero,
-  dgp_pure_interaction,
-  dgp_sparse,
+  #dgp_nonlin_hetero,
+  #dgp_pure_interaction,
+  #dgp_sparse,
   dgp_piecewise,
   dgp_latent_outlier
 )
@@ -121,7 +123,8 @@ dgp_clas_list <- list(
   dgp_imbalanced,
   dgp_moons
 )
-names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
+#names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
+names(dgp_reg_list) <- c("piecewise", "latent_outlier")
 names(dgp_clas_list) <- c("xor", "logit_noise", "hierarchy", "imbalanced", "moons")
 
 # Predict and compare on DGPs

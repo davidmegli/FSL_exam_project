@@ -223,7 +223,7 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
                                             B = 30,
                                             K = 5,
                                             seed = 42,
-                                            task = c("reg", "class"),
+                                            task = c("reg", "clas"),
                                             verbose = TRUE) {
   task <- match.arg(task)
   set.seed(seed)
@@ -335,21 +335,39 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             metrics_list[[m]]$mae[b] <- mean(abs(y_test - preds_test))
             metrics_list[[m]]$r2[b] <- 1 - sum((y_test - preds_test)^2) / sum((y_test - mean(y_test))^2)
           } else {
-            if (is.factor(y_test) || is.character(y_test)) y_test <- as.factor(y_test)
-            y_pred_class <- if (is.numeric(preds_test)) {
-              if (length(unique(y_test)) == 2) as.factor(ifelse(preds_test > 0.5, levels(y_test)[2], levels(y_test)[1]))
-              else as.factor(apply(matrix(preds_test, ncol = length(unique(y_test))), 1, which.max))
-            } else {
-              as.factor(preds_test)
+            # Convert y_test in factor (safe)
+            if (!is.factor(y_test)) y_test <- factor(y_test)
+            
+            # Skip iteration if only one class is present in test set
+            if (length(unique(y_test)) < 2) {
+              warning("Only one class present in test set, skipping...")
+              next
             }
             
+            # Determine predicted classes
+            y_pred_class <- tryCatch({
+              if (is.numeric(preds_test)) {
+                if (length(levels(y_test)) == 2) {
+                  as.factor(ifelse(preds_test > 0.5, levels(y_test)[2], levels(y_test)[1]))
+                } else {
+                  class_index <- apply(matrix(preds_test, ncol = length(levels(y_test))), 1, which.max)
+                  as.factor(levels(y_test)[class_index])
+                }
+              } else {
+                as.factor(preds_test)
+              }
+            }, error = function(e) rep(NA, length(y_test)))
+            
+            if (anyNA(y_pred_class)) {
+              warning("Predicted classes contain NA, skipping...")
+              next
+            }
+            
+            # Accuracy
             metrics_list[[m]]$acc[b] <- mean(y_test == y_pred_class)
             
-            # F1-score e Balanced Accuracy
-            conf_mat <- table(Predicted = y_pred_class, Actual = y_test)
+            # Confusion matrix (robust)
             classes <- union(levels(y_test), levels(y_pred_class))
-            
-            # Ensure all levels are present
             conf_mat <- as.matrix(table(factor(y_pred_class, levels = classes),
                                         factor(y_test, levels = classes)))
             
@@ -369,23 +387,26 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             }
             metrics_list[[m]]$f1[b] <- mean(f1s, na.rm = TRUE)
             
-            # Balanced Accuracy
-            sensitivity <- recall <- diag(conf_mat) / colSums(conf_mat)
+            # Balanced accuracy
+            sensitivity <- diag(conf_mat) / colSums(conf_mat)
             specificity <- diag(conf_mat) / rowSums(conf_mat)
             balanced_acc <- mean(sensitivity, na.rm = TRUE)
             metrics_list[[m]]$balanced_acc[b] <- balanced_acc
             
-            if (length(unique(y_test)) == 2 && is.numeric(preds_test)) {
-              # AUC and LogLoss for binary classification
+            # AUC and LogLoss (only for binary classification and numeric probs)
+            if (length(levels(y_test)) == 2 && is.numeric(preds_test)) {
+              eps <- 1e-15
+              y_bin <- as.numeric(y_test == levels(y_test)[2]) # Convert to 0/1
+              preds_clipped <- pmin(pmax(preds_test, eps), 1 - eps)
+              
+              metrics_list[[m]]$logloss[b] <- tryCatch({
+                -mean(y_bin * log(preds_clipped) + (1 - y_bin) * log(1 - preds_clipped))
+              }, error = function(e) NA)
+              
               metrics_list[[m]]$auc[b] <- tryCatch({
                 roc_obj <- roc(y_test, preds_test)
                 as.numeric(auc(roc_obj))
               }, error = function(e) NA)
-              
-              eps <- 1e-15
-              preds_clipped <- pmin(pmax(preds_test, eps), 1 - eps)
-              logloss <- -mean(y_test * log(preds_clipped) + (1 - y_test) * log(1 - preds_clipped))
-              metrics_list[[m]]$logloss[b] <- logloss
             }
           }
         }
