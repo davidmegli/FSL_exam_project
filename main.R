@@ -27,11 +27,15 @@ import_libraries <- function() {
   library(ipred)
   library(tidyr)
   library(dplyr)
-  library(ggplot2)
-  library(mlbench)
   library(ISLR)
   library(caret)
+  library(ggplot2) # diamonds
+  library(mlbench) # Ozone, Abalone
+  library(lars) # diabetes
+  library(hdi) # riboflavin
+  library(readr) # per leggere il bike dataset
 }
+
 
 import_libraries()
 ##### declaration of models
@@ -109,23 +113,22 @@ model_list <- list(
 
 ##### DGPs
 dgp_reg_list <- list(
-  #dgp_nonlin_hetero,
-  #dgp_pure_interaction,
-  #dgp_sparse,
+  dgp_nonlin_hetero,
+  dgp_pure_interaction,
+  dgp_sparse,
   dgp_piecewise,
   dgp_latent_outlier
 )
 
-dgp_clas_list <- list(
-  dgp_xor,
-  dgp_logit_noise,
-  dgp_hierarchy,
-  dgp_imbalanced,
-  dgp_moons
-)
-#names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
-names(dgp_reg_list) <- c("piecewise", "latent_outlier")
-names(dgp_clas_list) <- c("xor", "logit_noise", "hierarchy", "imbalanced", "moons")
+#dgp_clas_list <- list(
+#  dgp_xor,
+#  dgp_logit_noise,
+#  dgp_hierarchy,
+#  dgp_imbalanced,
+#  dgp_moons
+#)
+names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
+#names(dgp_reg_list) <- c("sparse","piecewise", "latent_outlier")
 
 # Predict and compare on DGPs
 results_reg_dgp <- montecarlo_compare_plot_models_multiDGP(
@@ -158,73 +161,116 @@ save_summary_table_csv(
   file_prefix = "dgp_summary"
 )
 
-results_clas_dgp <- montecarlo_compare_plot_models_multiDGP(
-  dgp_list = dgp_clas_list,
-  model_list = model_list,
-  n_train = 200,
-  n_test = 100,
-  task = "clas",
-  B = 10,
-  K = 3,
-  seed = 42
-)
 
-save_summary_table_csv(
-  results_all = results_clas_dgp,
-  metric_name = "acc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_dgp,
-  metric_name = "auc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_dgp,
-  metric_name = "f1",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_dgp,
-  metric_name = "logloss",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_dgp,
-  metric_name = "balanced_acc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
+##### DATASETS #####
 
-##### DATASETS
-
-# Funzione di splitting train/test
-split_dataset <- function(data, target_col, split_ratio = 0.7) {
-  set.seed(123)
-  idx <- createDataPartition(data[[target_col]], p = split_ratio, list = FALSE)
+split_dataset <- function(df, target_name, train_frac = 0.8, max_rows = Inf) {
+  # Rimuove righe incomplete
+  df <- df[complete.cases(df), ]
+  
+  # Converte in data.frame base (se è tibble o altro)
+  df <- as.data.frame(df)
+  
+  # Shuffle delle righe
+  set.seed(123)  # per riproducibilità
+  df <- df[sample(nrow(df)), ]
+  
+  # Se limita il numero massimo di righe
+  if (is.finite(max_rows) && nrow(df) > max_rows) {
+    df <- df[1:max_rows, ]
+  }
+  
+  # Seleziona solo le feature numeriche
+  features <- setdiff(names(df), target_name)
+  numeric_features <- features[sapply(df[features], function(x) is.numeric(x) || is.integer(x))]
+  
+  # Controllo: almeno 1 feature numerica
+  if (length(numeric_features) == 0) {
+    warning("Nessuna feature numerica valida per il dataset.")
+    return(NULL)
+  }
+  
+  # Split random (non necessario qui, la CV gestisce il vero splitting)
   list(
-    train = data[idx, ],
-    test = data[-idx, ]
+    data = df,  # data.frame base, no tibble
+    features = numeric_features,
+    target = target_name
   )
 }
 
-# Dataset di regressione
-data(Boston)         # MASS
-data(Hitters)        # ISLR
-data(airquality)     # datasets
-data(cars)           # datasets
-data(Orange)         # datasets
 
-reg_data_list <- list(
-  boston = split_dataset(Boston, "medv"),
-  hitters = split_dataset(na.omit(Hitters), "Salary"),
-  airquality = split_dataset(na.omit(airquality), "Ozone"),
-  cars = split_dataset(cars, "dist"),
-  orange = split_dataset(Orange %>% group_by(Tree) %>% slice(1), "circumference")  # solo 1 osservazione per Tree
+
+### NEW
+get_dataset_list <- function() {
+  data(LifeCycleSavings)
+  # 1. Boston Housing
+  data(Boston, package = "MASS")
+  # 2. Diamonds
+  data("diamonds", package = "ggplot2")
+  diamonds$price <- as.numeric(diamonds$price)
+  # 3. Ozone
+  data("Ozone", package = "mlbench")
+  Ozone <- na.omit(Ozone)
+  # 4. Diabetes
+  data("diabetes", package = "lars")
+  diabetes_df <- as.data.frame.matrix(diabetes$x)
+  diabetes_df$y <- diabetes$y
+  # 5. Riboflavin
+  #data("riboflavin", package = "hdi")
+  #riboflavin_df <- as.data.frame.matrix(riboflavin$x)
+  #riboflavin_df$y <- riboflavin$y
+  # 6. Bike Sharing (scaricato manualmente da UCI)
+  #bike_path <- "day.csv"
+  #if (file.exists(bike_path)) {
+  #  bike_df <- read_csv(bike_path)
+  #} else {
+  #  warning("Bike sharing dataset non trovato, salta.")
+  #  bike_df <- NULL
+  #}
+  reg_data_list <- list(
+    boston = split_dataset(Boston, "medv"),
+    diamonds = split_dataset(diamonds, "price", max_rows = 10000),
+    ozone = split_dataset(Ozone, "V4"), # V4 = valore di ozono
+    diabetes = split_dataset(diabetes_df, "y"),
+    lifecyclesavings = split_dataset(LifeCycleSavings, "sr")
+    #riboflavin = split_dataset(riboflavin_df, "y")
+  )
+  #if (!is.null(bike_df)) {
+  #  reg_data_list$bike <- split_dataset(bike_df, "cnt")
+  #}
+  return(reg_data_list)
+}
+reg_data_list <- get_dataset_list()
+##### Prediction on Datasets
+# Confronto per regressione
+results_nested_cv <- cv_compare_plot_datasets_multi(
+  dataset_list = reg_data_list,
+  model_list = model_list,
+  task = "reg",
+  K_outer = 5,
+  K_inner = 3,
+  seed = 42
+)
+
+write.csv(results_nested_cv, "nested_cv_results.csv", row.names = FALSE)
+
+save_summary_table_csv(
+  results_all = results_nested_cv,
+  metric_name = "mse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_nested_cv,
+  metric_name = "rmse",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
+)
+save_summary_table_csv(
+  results_all = results_nested_cv,
+  metric_name = "r2",
+  output_dir = "results/DGP",
+  file_prefix = "dgp_summary"
 )
 
 
@@ -242,45 +288,10 @@ class_data_list <- list(
   glass = split_dataset(Glass, "Type"),
   smarket = split_dataset(Smarket, "Direction")
 )
-
-
-##### Prediction on Datasets
-
-# Confronto per regressione
-results_reg_data <- montecarlo_compare_plot_datasets_multi(
-  dataset_list = reg_data_list,
-  model_list = model_list,
-  task = "reg",
-  B = 5,
-  K = 3,
-  seed = 42
-)
-
-
-save_summary_table_csv(
-  results_all = results_reg_data,
-  metric_name = "mse",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_reg_data,
-  metric_name = "rmse",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_reg_data,
-  metric_name = "r2",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-
-
 # Confronto per classificazione
 results_clas_data <- montecarlo_compare_plot_datasets_multi(
   dataset_list = class_data_list,
-  model_list = model_list,
+  model_list = model_list_clas,
   task = "clas",
   B = 5,
   K = 3,

@@ -122,6 +122,8 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
       fit_fun <- method$fit
       predict_fun <- method$predict
       param_grid <- method$params
+      model_name <- names(model_list)[m]
+      message(paste0("eseguendo modello:", model_name))
       
       best_score <- Inf
       best_model <- NULL
@@ -139,16 +141,25 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
           X_val <- X_train[idx_valid, , drop = FALSE]
           y_val <- y_train[idx_valid]
           
+          if (task == "clas") {
+            if (!is.factor(y_tr)) {
+              warning("y_tr is not a factor, converting.")
+              y_tr <- factor(y_tr)
+            }
+          }
+          
           model <- tryCatch(
             do.call(fit_fun, c(list(X = X_tr, y = y_tr), params)),
             error = function(e) NULL
           )
           if (is.null(model)) next
+          #print(str(model))
           
           preds <- tryCatch(
             predict_fun(model, X_val),
             error = function(e) rep(NA, length(y_val))
           )
+          #cat("Preds: ", preds, "\n")
           if (anyNA(preds)) next
           
           if (task == "reg") {
@@ -157,6 +168,7 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             acc <- mean(preds == y_val)
             scores <- c(scores, 1 - acc)
           }
+          cat("Scores: ",scores,"\n")
         }
         
         if (length(scores) == 0 || all(is.na(scores))) next
@@ -242,7 +254,7 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             specificity <- diag(conf_mat) / rowSums(conf_mat)
             balanced_acc <- mean(sensitivity, na.rm = TRUE)
             metrics_list[[m]]$balanced_acc[b] <- balanced_acc
-            
+
             # AUC and LogLoss (only for binary classification and numeric probs)
             if (length(levels(y_test)) == 2 && is.numeric(preds_test)) {
               eps <- 1e-15
@@ -413,110 +425,6 @@ save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots",
   message("Plot salvato in: ", filepath)
 }
 
-
-
-montecarlo_compare_plot_dataset <- function(
-    dataset,  # lista con train e test
-    model_list,
-    task = "reg",
-    B = 5,
-    K = 3,
-    seed = 42,
-    run_name = NULL
-) {
-  library(purrr)
-  library(dplyr)
-  
-  if (is.null(run_name)) {
-    run_name <- paste0(task, "_dataset")
-  }
-  
-  # Funzione wrapper per fornire il dataset ogni volta come fosse una DGP
-  dgp_fun <- function(n) {
-    list(
-      X = dataset[[ifelse(n <= nrow(dataset$train), "train", "test")]][, -ncol(dataset$train)],
-      y = dataset[[ifelse(n <= nrow(dataset$train), "train", "test")]][, ncol(dataset$train)]
-    )
-  }
-  
-  # Chiamata alla funzione già definita
-  results <- montecarlo_compare_models_tuned(
-    dgp_fun = dgp_fun,
-    model_list = model_list,
-    n_train = nrow(dataset$train),
-    n_test = nrow(dataset$test),
-    task = task,
-    B = B,
-    K = K,
-    seed = seed
-  )
-  
-  metrics_long <- purrr::imap_dfr(results$metrics, function(metrics, model) {
-    if (is.null(metrics) || length(metrics) == 0) {
-      warning(paste("No metrics for model:", model))
-      return(NULL)
-    }
-    purrr::imap_dfr(metrics, function(values, metric) {
-      if (is.null(values)) {
-        warning(paste("No values for metric:", metric, "in model:", model))
-        return(NULL)
-      }
-      data.frame(
-        Model = model,
-        Metric = metric,
-        Value = values
-      )
-    })
-  })
-  
-  unique_metrics <- unique(metrics_long$Metric)
-  for (m in unique_metrics) {
-    save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DATA", run_name = run_name)
-  }
-  
-  save_metrics_to_csv(metrics_long, output_dir = "results/DATA", run_name = run_name)
-  
-  return(invisible(results))
-}
-
-
-
-montecarlo_compare_plot_datasets_multi <- function(
-    dataset_list,
-    model_list,
-    task = "reg",
-    B = 5,
-    K = 3,
-    seed = 42
-) {
-  results_all <- list()
-  
-  for (i in seq_along(dataset_list)) {
-    dataset <- dataset_list[[i]]
-    dataset_name <- names(dataset_list)[i]
-    if (is.null(dataset_name) || dataset_name == "") {
-      dataset_name <- paste0("dataset", i)
-    }
-    run_name <- paste0(task, "_", dataset_name)
-    message("Eseguendo confronto su dataset: ", dataset_name)
-    
-    results <- montecarlo_compare_plot_dataset(
-      dataset = dataset,
-      model_list = model_list,
-      task = task,
-      B = B,
-      K = K,
-      seed = seed,
-      run_name = run_name
-    )
-    
-    results_all[[dataset_name]] <- results
-  }
-  
-  return(results_all)
-}
-
-
 save_summary_table_csv <- function(
     results_all,
     metric_name = "mse",
@@ -604,4 +512,201 @@ save_metrics_to_csv <- function(metrics_long, output_dir = "results", run_name =
   
   write.csv(metrics_summary, filepath, row.names = FALSE)
   message("Risultati salvati in: ", filepath)
+}
+
+
+
+cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg", 
+                                           K_outer = 5, K_inner = 3, seed = 42) {
+  #if (is.null(dataset$data) || nrow(dataset$data) < K_outer) {
+  #  warning("Dataset non valido o troppo piccolo.")
+  #  return(NULL)
+  #}
+  #if (is.null(dataset$features) || is.null(dataset$target)) {
+  #  warning("Dataset mancante di features o target.")
+  #  return(NULL)
+  #}
+  
+  set.seed(seed)
+  n <- nrow(dataset$data)
+  folds_outer <- caret::createFolds(1:n, k = K_outer, list = TRUE)
+  
+  metrics_per_model <- list()
+  
+  for (model_name in names(model_list)) {
+    cat("  Model", model_name, "\n")
+    fit_fun <- model_list[[model_name]]$fit
+    predict_fun <- model_list[[model_name]]$predict
+    params_list <- model_list[[model_name]]$params
+    
+    if (length(params_list) == 0) next
+    
+    fold_metrics <- c()
+    
+    for (k in seq_along(folds_outer)) {
+      cat("    outer cross-validation: ",k,"/",K_outer,"\n")
+      test_idx <- folds_outer[[k]]
+      train_idx <- setdiff(1:n, test_idx)
+      
+      X_train <- dataset$data[train_idx, dataset$features, drop = FALSE]
+      y_train <- dataset$data[[dataset$target]][train_idx]
+      X_test <- dataset$data[test_idx, dataset$features, drop = FALSE]
+      y_test  <- dataset$data[[dataset$target]][test_idx]
+      cat("names(X_train): ",names(X_train))
+      # Inner CV per tuning
+      folds_inner <- caret::createFolds(1:nrow(X_train), k = K_inner, list = TRUE)
+      param_scores <- numeric(length(params_list))
+      
+      for (p in seq_along(params_list)) {
+        cat("      hyperparameters tuning: ",p,"/",length(params_list),"\n")
+        inner_scores <- c()
+        for (inner_fold in folds_inner) {
+          inner_test_idx <- inner_fold
+          inner_train_idx <- setdiff(1:nrow(X_train), inner_test_idx)
+          
+          X_tr <- X_train[inner_train_idx, , drop = FALSE]
+          y_tr    <- y_train[inner_train_idx]
+          X_val <- X_train[inner_test_idx, , drop = FALSE]
+          y_val   <- y_train[inner_test_idx]
+          
+          cat("        fit...\n")
+          model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_tr, y = y_tr), params_list[[p]])),
+            error = function(e) NULL
+          )
+          
+          cat("        pred...\n")
+          if (!is.null(model)) {
+            y_pred <- tryCatch(predict_fun(model, X_val), error = function(e) NULL)
+            if (!is.null(y_pred)) {
+              metric_val <- if (task == "reg") mean((y_val - y_pred)^2) else mean(y_val != y_pred)
+              inner_scores <- c(inner_scores, metric_val)
+            }
+          }
+          if (model_name == "PRForest") {
+            cat("  PRForest y_pred: ", y_pred, "\n")
+          }
+        }
+        param_scores[p] <- mean(inner_scores, na.rm = TRUE)
+      }
+      
+      if (all(is.na(param_scores))) {
+        warning(paste("Tuning fallito per il modello", model_name))
+        next
+      }
+      
+      best_param_idx <- which.min(param_scores)
+      best_param <- params_list[[best_param_idx]]
+      
+      final_model <- tryCatch(
+        do.call(fit_fun, c(list(X = X_train, y = y_train), best_param)),
+        error = function(e) NULL
+      )
+      
+      if (!is.null(final_model)) {
+        y_pred <- tryCatch(predict_fun(final_model, X_test), error = function(e) NULL)
+        if (!is.null(y_pred)) {
+          metric_val <- if (task == "reg") mean((y_test - y_pred)^2) else mean(y_test != y_pred)
+          fold_metrics <- c(fold_metrics, metric_val)
+        }
+      }
+    }
+    
+    metrics_per_model[[model_name]] <- list(
+      values = fold_metrics,
+      metric_name = if (task == "reg") "MSE" else "Misclassification Rate"
+    )
+  }
+  
+  return(metrics_per_model)
+}
+
+
+
+cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg",
+                                           K_outer = 5, K_inner = 3, seed = 42,
+                                           output_dir = "results/Dataset", run_name = NULL) {
+  all_metrics_long <- list()
+  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  if (is.null(run_name)) {
+    timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+    run_name <- timestamp
+  }
+  for (dataset_name in names(dataset_list)) {
+    cat("Dataset", dataset_name, "\n")
+    dataset <- dataset_list[[dataset_name]]
+    
+    model_metrics <- cv_compare_models_nested_tuned(
+      dataset = dataset,
+      model_list = model_list,
+      task = task,
+      K_outer = K_outer,
+      K_inner = K_inner,
+      seed = seed
+    )
+    
+    metrics_this_dataset <- list()
+    
+    for (model in names(model_metrics)) {
+      metric_info <- model_metrics[[model]]
+      if (length(metric_info$values) > 0) {
+        df <- data.frame(
+          Dataset = dataset_name,
+          Model = model,
+          Metric = metric_info$metric_name,
+          Value = metric_info$values
+        )
+        metrics_this_dataset[[length(metrics_this_dataset) + 1]] <- df
+        all_metrics_long[[length(all_metrics_long) + 1]] <- df
+      }
+    }
+    
+    df_dataset_long <- do.call(rbind, metrics_this_dataset)
+    
+    # Boxplot per ogni metrica
+    metrics <- unique(df_dataset_long$Metric)
+    for (m in metrics) {
+      p <- ggplot(subset(df_dataset_long, Metric == m), aes(x = Model, y = Value, fill = Model)) +
+        geom_boxplot() +
+        ggtitle(paste("Boxplot for", dataset_name, "-", m)) +
+        theme_minimal()
+      
+      if (!is.null(run_name)) {
+        plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, "_", run_name, ".png"))
+        ggsave(plot_path, plot = p, width = 10, height = 5)
+      }
+    }
+    
+    # Heatmap della media per dataset
+    summary_df <- df_dataset_long %>%
+      group_by(Model, Metric) %>%
+      summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") %>%
+      tidyr::pivot_wider(names_from = Metric, values_from = Mean)
+    
+    summary_mat <- as.matrix(summary_df[,-1])  # rimuove colonna Model per usare come matrice
+    rownames(summary_mat) <- summary_df$Model
+    molten <- reshape2::melt(summary_mat, varnames = c("Model", "Metric"), value.name = "Value")
+    
+    p_heatmap <- ggplot(molten, aes(x = Metric, y = Model, fill = Value)) +
+      geom_tile(color = "white") +
+      geom_text(aes(label = round(Value, 3)), size = 4) +
+      scale_fill_gradient(low = "white", high = "steelblue") +
+      theme_minimal() +
+      ggtitle(paste("Heatmap for", dataset_name))
+    
+    if (!is.null(run_name)) {
+      heatmap_path <- file.path(output_dir, paste0("heatmap_", dataset_name, "_", run_name, ".png"))
+      ggsave(heatmap_path, plot = p_heatmap, width = 8, height = 5)
+    }
+  }
+  
+  df_long <- do.call(rbind, all_metrics_long)
+  
+  # Salva CSV complessivo
+  if (!is.null(run_name)) {
+    csv_path <- file.path(output_dir, paste0("metrics_", run_name, ".csv"))
+    write.csv(df_long, file = csv_path, row.names = FALSE)
+  }
+  
+  return(df_long)
 }

@@ -1,0 +1,6 @@
+"","RaFFLE","PRForest","RandomForest","XGBoost","LightGBM"
+"nonlin_hetero",NA,NA,NA,NA,NA
+"pure_interaction",NA,NA,NA,NA,NA
+"sparse",NA,NA,NA,NA,NA
+"piecewise",NA,NA,NA,NA,NA
+"latent_outlier",NA,NA,NA,NA,NA
