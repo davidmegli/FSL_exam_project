@@ -53,8 +53,8 @@ model_list <- list(
     fit = function(X, y, ...) fit_pr_forest(y = y, X = X, ...),
     predict = function(model, newdata) predict_pr_forest(model, newdata)$yhat,
     params = list(
-      list(n_trees = 50, sample_frac = 0.8, seed = 42),
-      list(n_trees = 100, sample_frac = 0.8, seed = 42)
+      list(n_trees = 50, sample_frac = 1.0, seed = 42),
+      list(n_trees = 100, sample_frac = 1.0, seed = 42)
     )
   ),
   
@@ -113,11 +113,13 @@ model_list <- list(
 
 ##### DGPs
 dgp_reg_list <- list(
-  dgp_nonlin_hetero,
+  dgp_smooth_additive,
+  dgp_nonlin_homo,
   dgp_pure_interaction,
-  dgp_sparse,
+  #dgp_sparse,
   dgp_piecewise,
-  dgp_latent_outlier
+  dgp_latent_outlier,
+  dgp_smooth_nonlinear
 )
 
 #dgp_clas_list <- list(
@@ -127,7 +129,9 @@ dgp_reg_list <- list(
 #  dgp_imbalanced,
 #  dgp_moons
 #)
-names(dgp_reg_list) <- c("nonlin_hetero", "pure_interaction", "sparse", "piecewise", "latent_outlier")
+#names(dgp_reg_list) <- c("nonlin_homo", "pure_interaction", "sparse", "piecewise", "latent_outlier", "smooth_nonlinear")
+names(dgp_reg_list) <- c("smooth_additive","nonlin_homo", "pure_interaction", "piecewise", "latent_outlier", "smooth_nonlinear")
+#names(dgp_reg_list) <- c("pure_interaction", "sparse", "piecewise", "latent_outlier")
 #names(dgp_reg_list) <- c("sparse","piecewise", "latent_outlier")
 
 # Predict and compare on DGPs
@@ -240,19 +244,38 @@ get_dataset_list <- function() {
   #}
   return(reg_data_list)
 }
+get_dataset_list_testing <- function() {
+  data(LifeCycleSavings)
+  data(Boston, package = "MASS")
+  data("diamonds", package = "ggplot2")
+  diamonds$price <- as.numeric(diamonds$price)
+  data("Ozone", package = "mlbench")
+  Ozone <- na.omit(Ozone)
+  data("diabetes", package = "lars")
+  diabetes_df <- as.data.frame.matrix(diabetes$x)
+  diabetes_df$y <- diabetes$y
+  reg_data_list <- list(
+    boston = split_dataset(Boston, "medv", max_rows = 100),
+    diamonds = split_dataset(diamonds, "price", max_rows = 100),
+    ozone = split_dataset(Ozone, "V4", max_rows = 100),
+    diabetes = split_dataset(diabetes_df, "y", max_rows = 100),
+    lifecyclesavings = split_dataset(LifeCycleSavings, "sr", max_rows = 100)
+  )
+  return(reg_data_list)
+}
 reg_data_list <- get_dataset_list()
 ##### Prediction on Datasets
 # Confronto per regressione
-results_nested_cv <- cv_compare_plot_datasets_multi(
+results_nested_cv <- cv_compare_plot_datasets_multi_v2(
   dataset_list = reg_data_list,
   model_list = model_list,
   task = "reg",
-  K_outer = 5,
+  K_outer = 10,
   K_inner = 3,
   seed = 42
 )
 
-write.csv(results_nested_cv, "nested_cv_results.csv", row.names = FALSE)
+write.csv(results_nested_cv, paste0("dataset_comparison_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"),".csv"), row.names = FALSE)
 
 save_summary_table_csv(
   results_all = results_nested_cv,

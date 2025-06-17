@@ -168,7 +168,9 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             acc <- mean(preds == y_val)
             scores <- c(scores, 1 - acc)
           }
-          cat("Scores: ",scores,"\n")
+          #cat("Scores: ",scores,"\n")
+          #cat("y_val: ",y_val,"\n")
+          #cat("preds: ",preds,"\n")
         }
         
         if (length(scores) == 0 || all(is.na(scores))) next
@@ -516,7 +518,7 @@ save_metrics_to_csv <- function(metrics_long, output_dir = "results", run_name =
 
 
 
-cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg", 
+cv_compare_models_nested_tuned_old <- function(dataset, model_list, task = "reg", # Only MSE!
                                            K_outer = 5, K_inner = 3, seed = 42) {
   #if (is.null(dataset$data) || nrow(dataset$data) < K_outer) {
   #  warning("Dataset non valido o troppo piccolo.")
@@ -552,7 +554,7 @@ cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg",
       y_train <- dataset$data[[dataset$target]][train_idx]
       X_test <- dataset$data[test_idx, dataset$features, drop = FALSE]
       y_test  <- dataset$data[[dataset$target]][test_idx]
-      cat("names(X_train): ",names(X_train))
+      #cat("names(X_train): ",names(X_train))
       # Inner CV per tuning
       folds_inner <- caret::createFolds(1:nrow(X_train), k = K_inner, list = TRUE)
       param_scores <- numeric(length(params_list))
@@ -569,13 +571,13 @@ cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg",
           X_val <- X_train[inner_test_idx, , drop = FALSE]
           y_val   <- y_train[inner_test_idx]
           
-          cat("        fit...\n")
+          #cat("        fit...\n")
           model <- tryCatch(
             do.call(fit_fun, c(list(X = X_tr, y = y_tr), params_list[[p]])),
             error = function(e) NULL
           )
           
-          cat("        pred...\n")
+          #cat("        pred...\n")
           if (!is.null(model)) {
             y_pred <- tryCatch(predict_fun(model, X_val), error = function(e) NULL)
             if (!is.null(y_pred)) {
@@ -583,9 +585,9 @@ cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg",
               inner_scores <- c(inner_scores, metric_val)
             }
           }
-          if (model_name == "PRForest") {
-            cat("  PRForest y_pred: ", y_pred, "\n")
-          }
+          #if (model_name == "PRForest") {
+          #  cat("  PRForest y_pred: ", y_pred, "\n")
+          #}
         }
         param_scores[p] <- mean(inner_scores, na.rm = TRUE)
       }
@@ -621,6 +623,110 @@ cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg",
   return(metrics_per_model)
 }
 
+cv_compare_models_nested_tuned <- function(dataset, model_list, task = "reg", 
+                                           K_outer = 5, K_inner = 3, seed = 42) {
+  set.seed(seed)
+  n <- nrow(dataset$data)
+  folds_outer <- caret::createFolds(1:n, k = K_outer, list = TRUE)
+  
+  metrics_per_model <- list()
+  
+  for (model_name in names(model_list)) {
+    cat("  Model", model_name, "\n")
+    fit_fun <- model_list[[model_name]]$fit
+    predict_fun <- model_list[[model_name]]$predict
+    params_list <- model_list[[model_name]]$params
+    
+    if (length(params_list) == 0) next
+    
+    # Lista per raccogliere metriche per ogni fold
+    mse_list <- c()
+    mae_list <- c()
+    rmse_list <- c()
+    r2_list <- c()
+    
+    for (k in seq_along(folds_outer)) {
+      cat("    outer cross-validation: ",k,"/",K_outer,"\n")
+      test_idx <- folds_outer[[k]]
+      train_idx <- setdiff(1:n, test_idx)
+      
+      X_train <- dataset$data[train_idx, dataset$features, drop = FALSE]
+      y_train <- dataset$data[[dataset$target]][train_idx]
+      X_test  <- dataset$data[test_idx, dataset$features, drop = FALSE]
+      y_test  <- dataset$data[[dataset$target]][test_idx]
+      
+      # Inner CV per tuning
+      folds_inner <- caret::createFolds(1:nrow(X_train), k = K_inner, list = TRUE)
+      param_scores <- numeric(length(params_list))
+      
+      for (p in seq_along(params_list)) {
+        cat("      hyperparameters tuning: ",p,"/",length(params_list),"\n")
+        inner_scores <- c()
+        
+        for (inner_fold in folds_inner) {
+          inner_test_idx <- inner_fold
+          inner_train_idx <- setdiff(1:nrow(X_train), inner_test_idx)
+          
+          X_tr <- X_train[inner_train_idx, , drop = FALSE]
+          y_tr <- y_train[inner_train_idx]
+          X_val <- X_train[inner_test_idx, , drop = FALSE]
+          y_val <- y_train[inner_test_idx]
+          
+          model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_tr, y = y_tr), params_list[[p]])),
+            error = function(e) NULL
+          )
+          
+          if (!is.null(model)) {
+            y_pred <- tryCatch(predict_fun(model, X_val), error = function(e) NULL)
+            if (!is.null(y_pred)) {
+              mse_val <- mean((y_val - y_pred)^2)
+              inner_scores <- c(inner_scores, mse_val) # tuning usa ancora MSE
+            }
+          }
+        }
+        param_scores[p] <- mean(inner_scores, na.rm = TRUE)
+      }
+      
+      if (all(is.na(param_scores))) {
+        warning(paste("Tuning fallito per il modello", model_name))
+        next
+      }
+      
+      best_param_idx <- which.min(param_scores)
+      best_param <- params_list[[best_param_idx]]
+      
+      final_model <- tryCatch(
+        do.call(fit_fun, c(list(X = X_train, y = y_train), best_param)),
+        error = function(e) NULL
+      )
+      
+      if (!is.null(final_model)) {
+        y_pred <- tryCatch(predict_fun(final_model, X_test), error = function(e) NULL)
+        if (!is.null(y_pred)) {
+          mse_val <- mean((y_test - y_pred)^2)
+          mae_val <- mean(abs(y_test - y_pred))
+          rmse_val <- sqrt(mse_val)
+          r2_val <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
+          
+          mse_list <- c(mse_list, mse_val)
+          mae_list <- c(mae_list, mae_val)
+          rmse_list <- c(rmse_list, rmse_val)
+          r2_list <- c(r2_list, r2_val)
+        }
+      }
+    }
+    
+    metrics_per_model[[model_name]] <- list(
+      MSE = mse_list,
+      MAE = mae_list,
+      RMSE = rmse_list,
+      R2 = r2_list
+    )
+  }
+  
+  return(metrics_per_model)
+}
 
 
 cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg",
@@ -673,15 +779,23 @@ cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg
       
       if (!is.null(run_name)) {
         plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, "_", run_name, ".png"))
-        ggsave(plot_path, plot = p, width = 10, height = 5)
       }
+      else {
+        plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, ".png"))
+      }
+      ggsave(plot_path, plot = p, width = 10, height = 5)
     }
     
     # Heatmap della media per dataset
-    summary_df <- df_dataset_long %>%
-      group_by(Model, Metric) %>%
-      summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") %>%
-      tidyr::pivot_wider(names_from = Metric, values_from = Mean)
+    if (!is.null(df_dataset_long) && nrow(df_dataset_long) > 0) {
+      summary_df <- df_dataset_long %>%
+        group_by(Model, Metric) %>%
+        summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") %>%
+        tidyr::pivot_wider(names_from = Metric, values_from = Mean)
+    } else {
+      warning("df_dataset_long è NULL o vuoto: summary_df non può essere calcolato.")
+      summary_df <- NULL
+    }
     
     summary_mat <- as.matrix(summary_df[,-1])  # rimuove colonna Model per usare come matrice
     rownames(summary_mat) <- summary_df$Model
@@ -709,4 +823,302 @@ cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg
   }
   
   return(df_long)
+}
+
+
+cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg", 
+                                           K_outer = 5, K_inner = 3, seed = 42) {
+  set.seed(seed)
+  n <- nrow(dataset$data)
+  folds_outer <- caret::createFolds(1:n, k = K_outer, list = TRUE)
+  
+  metrics_per_model <- list()
+  
+  for (model_name in names(model_list)) {
+    cat("  Model", model_name, "\n")
+    fit_fun <- model_list[[model_name]]$fit
+    predict_fun <- model_list[[model_name]]$predict
+    params_list <- model_list[[model_name]]$params
+    
+    if (length(params_list) == 0) next
+    
+    mse_list <- c()
+    mae_list <- c()
+    rmse_list <- c()
+    r2_list <- c()
+    
+    for (k in seq_along(folds_outer)) {
+      cat("    outer cross-validation: ",k,"/",K_outer,"\n")
+      test_idx <- folds_outer[[k]]
+      train_idx <- setdiff(1:n, test_idx)
+      
+      X_train <- dataset$data[train_idx, dataset$features, drop = FALSE]
+      y_train <- dataset$data[[dataset$target]][train_idx]
+      X_test  <- dataset$data[test_idx, dataset$features, drop = FALSE]
+      y_test  <- dataset$data[[dataset$target]][test_idx]
+      
+      folds_inner <- caret::createFolds(1:nrow(X_train), k = K_inner, list = TRUE)
+      param_scores <- numeric(length(params_list))
+      
+      for (p in seq_along(params_list)) {
+        inner_scores <- c()
+        
+        for (inner_fold in folds_inner) {
+          inner_test_idx <- inner_fold
+          inner_train_idx <- setdiff(1:nrow(X_train), inner_test_idx)
+          
+          X_tr <- X_train[inner_train_idx, , drop = FALSE]
+          y_tr <- y_train[inner_train_idx]
+          X_val <- X_train[inner_test_idx, , drop = FALSE]
+          y_val <- y_train[inner_test_idx]
+          
+          model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_tr, y = y_tr), params_list[[p]])),
+            error = function(e) NULL
+          )
+          
+          if (!is.null(model)) {
+            y_pred <- tryCatch(predict_fun(model, X_val), error = function(e) NULL)
+            if (!is.null(y_pred)) {
+              mse_val <- mean((y_val - y_pred)^2)
+              inner_scores <- c(inner_scores, mse_val)
+            }
+          }
+        }
+        param_scores[p] <- mean(inner_scores, na.rm = TRUE)
+      }
+      
+      if (all(is.na(param_scores))) {
+        warning(paste("Tuning fallito per il modello", model_name))
+        next
+      }
+      
+      best_param_idx <- which.min(param_scores)
+      best_param <- params_list[[best_param_idx]]
+      
+      final_model <- tryCatch(
+        do.call(fit_fun, c(list(X = X_train, y = y_train), best_param)),
+        error = function(e) NULL
+      )
+      
+      if (!is.null(final_model)) {
+        y_pred <- tryCatch(predict_fun(final_model, X_test), error = function(e) NULL)
+        if (!is.null(y_pred)) {
+          mse_val <- mean((y_test - y_pred)^2)
+          mae_val <- mean(abs(y_test - y_pred))
+          rmse_val <- sqrt(mse_val)
+          r2_val <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
+          
+          mse_list <- c(mse_list, mse_val)
+          mae_list <- c(mae_list, mae_val)
+          rmse_list <- c(rmse_list, rmse_val)
+          r2_list <- c(r2_list, r2_val)
+        }
+      }
+    }
+    
+    metrics_per_model[[model_name]] <- list(
+      MSE = mse_list,
+      MAE = mae_list,
+      RMSE = rmse_list,
+      R2 = r2_list
+    )
+  }
+  
+  return(metrics_per_model)
+}
+
+cv_compare_plot_datasets_multi_v2 <- function(dataset_list, model_list, task = "reg",
+                                           K_outer = 5, K_inner = 3, seed = 42,
+                                           output_dir = "results/Dataset", run_name = NULL) {
+  all_metrics_long <- list()
+  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  if (is.null(run_name)) {
+    timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+    run_name <- timestamp
+  }
+  for (dataset_name in names(dataset_list)) {
+    cat("Dataset", dataset_name, "\n")
+    dataset <- dataset_list[[dataset_name]]
+    
+    model_metrics <- cv_compare_models_nested_tuned_v2(
+      dataset = dataset,
+      model_list = model_list,
+      task = task,
+      K_outer = K_outer,
+      K_inner = K_inner,
+      seed = seed
+    )
+    
+    metrics_this_dataset <- list()
+    
+    for (model in names(model_metrics)) {
+      metric_info <- model_metrics[[model]]
+      for (metric_name in names(metric_info)) {
+        values <- metric_info[[metric_name]]
+        if (length(values) > 0) {
+          df <- data.frame(
+            Dataset = dataset_name,
+            Model = model,
+            Metric = metric_name,
+            Value = values
+          )
+          metrics_this_dataset[[length(metrics_this_dataset) + 1]] <- df
+          all_metrics_long[[length(all_metrics_long) + 1]] <- df
+        }
+      }
+    }
+    
+    df_dataset_long <- do.call(rbind, metrics_this_dataset)
+    
+    # Boxplot per ogni metrica
+    metrics <- unique(df_dataset_long$Metric)
+    for (m in metrics) {
+      p <- ggplot(subset(df_dataset_long, Metric == m), aes(x = Model, y = Value, fill = Model)) +
+        geom_boxplot() +
+        ggtitle(paste("Boxplot for", dataset_name, "-", m)) +
+        theme_minimal()
+      
+      plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, "_", run_name, ".png"))
+      ggsave(plot_path, plot = p, width = 10, height = 5)
+    }
+    
+    # Heatmap della media
+    if (!is.null(df_dataset_long) && nrow(df_dataset_long) > 0) {
+      summary_df <- df_dataset_long %>%
+        group_by(Model, Metric) %>%
+        summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") %>%
+        tidyr::pivot_wider(names_from = Metric, values_from = Mean)
+      
+      summary_mat <- as.matrix(summary_df[,-1]) 
+      rownames(summary_mat) <- summary_df$Model
+      molten <- reshape2::melt(summary_mat, varnames = c("Model", "Metric"), value.name = "Value")
+      
+      p_heatmap <- ggplot(molten, aes(x = Metric, y = Model, fill = Value)) +
+        geom_tile(color = "white") +
+        geom_text(aes(label = round(Value, 3)), size = 4) +
+        scale_fill_gradient(low = "white", high = "steelblue") +
+        theme_minimal() +
+        ggtitle(paste("Heatmap for", dataset_name))
+      
+      heatmap_path <- file.path(output_dir, paste0("heatmap_", dataset_name, "_", run_name, ".png"))
+      ggsave(heatmap_path, plot = p_heatmap, width = 8, height = 5)
+    } else {
+      warning("df_dataset_long è NULL o vuoto: summary_df non può essere calcolato.")
+    }
+  }
+  
+  df_long <- do.call(rbind, all_metrics_long)
+  
+  if (!is.null(run_name)) {
+    csv_path <- file.path(output_dir, paste0("metrics_", run_name, ".csv"))
+    write.csv(df_long, file = csv_path, row.names = FALSE)
+  }
+  
+  return(df_long)
+}
+
+
+
+# Vesion calculating MSE, RMSE, MAE, R2, with mean and sd
+cv_compare_models_nested_tuned_fullmetrics <- function(dataset, model_list, task = "reg", 
+                                           K_outer = 5, K_inner = 3, seed = 42) {
+  set.seed(seed)
+  n <- nrow(dataset$data)
+  folds_outer <- caret::createFolds(1:n, k = K_outer, list = TRUE)
+  
+  metrics_per_model <- list()
+  
+  for (model_name in names(model_list)) {
+    cat("  Model", model_name, "\n")
+    fit_fun <- model_list[[model_name]]$fit
+    predict_fun <- model_list[[model_name]]$predict
+    params_list <- model_list[[model_name]]$params
+    
+    if (length(params_list) == 0) next
+    
+    mse_list <- c()
+    mae_list <- c()
+    rmse_list <- c()
+    r2_list <- c()
+    
+    for (k in seq_along(folds_outer)) {
+      cat("    outer cross-validation: ",k,"/",K_outer,"\n")
+      test_idx <- folds_outer[[k]]
+      train_idx <- setdiff(1:n, test_idx)
+      
+      X_train <- dataset$data[train_idx, dataset$features, drop = FALSE]
+      y_train <- dataset$data[[dataset$target]][train_idx]
+      X_test  <- dataset$data[test_idx, dataset$features, drop = FALSE]
+      y_test  <- dataset$data[[dataset$target]][test_idx]
+      
+      folds_inner <- caret::createFolds(1:nrow(X_train), k = K_inner, list = TRUE)
+      param_scores <- numeric(length(params_list))
+      
+      for (p in seq_along(params_list)) {
+        inner_scores <- c()
+        
+        for (inner_fold in folds_inner) {
+          inner_test_idx <- inner_fold
+          inner_train_idx <- setdiff(1:nrow(X_train), inner_test_idx)
+          
+          X_tr <- X_train[inner_train_idx, , drop = FALSE]
+          y_tr <- y_train[inner_train_idx]
+          X_val <- X_train[inner_test_idx, , drop = FALSE]
+          y_val <- y_train[inner_test_idx]
+          
+          model <- tryCatch(
+            do.call(fit_fun, c(list(X = X_tr, y = y_tr), params_list[[p]])),
+            error = function(e) NULL
+          )
+          
+          if (!is.null(model)) {
+            y_pred <- tryCatch(predict_fun(model, X_val), error = function(e) NULL)
+            if (!is.null(y_pred)) {
+              mse_val <- mean((y_val - y_pred)^2)
+              inner_scores <- c(inner_scores, mse_val) # tuning su MSE
+            }
+          }
+        }
+        param_scores[p] <- mean(inner_scores, na.rm = TRUE)
+      }
+      
+      if (all(is.na(param_scores))) {
+        warning(paste("Tuning fallito per il modello", model_name))
+        next
+      }
+      
+      best_param_idx <- which.min(param_scores)
+      best_param <- params_list[[best_param_idx]]
+      
+      final_model <- tryCatch(
+        do.call(fit_fun, c(list(X = X_train, y = y_train), best_param)),
+        error = function(e) NULL
+      )
+      
+      if (!is.null(final_model)) {
+        y_pred <- tryCatch(predict_fun(final_model, X_test), error = function(e) NULL)
+        if (!is.null(y_pred)) {
+          mse_val <- mean((y_test - y_pred)^2)
+          mae_val <- mean(abs(y_test - y_pred))
+          rmse_val <- sqrt(mse_val)
+          r2_val <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
+          
+          mse_list <- c(mse_list, mse_val)
+          mae_list <- c(mae_list, mae_val)
+          rmse_list <- c(rmse_list, rmse_val)
+          r2_list <- c(r2_list, r2_val)
+        }
+      }
+    }
+    
+    metrics_per_model[[model_name]] <- list(
+      MSE = list(values = mse_list, mean = mean(mse_list, na.rm = TRUE), sd = sd(mse_list, na.rm = TRUE)),
+      MAE = list(values = mae_list, mean = mean(mae_list, na.rm = TRUE), sd = sd(mae_list, na.rm = TRUE)),
+      RMSE = list(values = rmse_list, mean = mean(rmse_list, na.rm = TRUE), sd = sd(rmse_list, na.rm = TRUE)),
+      R2 = list(values = r2_list, mean = mean(r2_list, na.rm = TRUE), sd = sd(r2_list, na.rm = TRUE))
+    )
+  }
+  
+  return(metrics_per_model)
 }

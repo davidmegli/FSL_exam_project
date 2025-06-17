@@ -101,11 +101,19 @@ dgp_binary <- function(n, p = 5) {
 # 1. Additività non lineare con rumore eteroscedastico
 # Motivazione: testa flessibilità (non linearità) e robustezza (rumore dipendente dai predittori).
 dgp_nonlin_hetero <- function(n) {
-  X <- data.frame(x1 = runif(n, -3, 3),
-                  x2 = runif(n, -3, 3),
-                  x3 = runif(n, -3, 3))
+  X <- data.frame(x1 = runif(n, 0, 1),
+                  x2 = runif(n, 0, 1),
+                  x3 = runif(n, 0, 1))
   noise_sd <- 0.1 + 0.5 * abs(X$x1)
   y <- sin(X$x1) + log(abs(X$x2) + 1) + X$x3^2 + rnorm(n, 0, noise_sd)
+  return(list(X = X, y = y))
+}
+
+dgp_nonlin_homo <- function(n) {
+  X <- data.frame(x1 = runif(n),   # già in [0,1]
+                  x2 = runif(n),
+                  x3 = runif(n))
+  y <- sin(6 * X$x1 - 3) + log(abs(6 * X$x2 - 3) + 1) + (6 * X$x3 - 3)^2 + rnorm(n, 0, 1)
   return(list(X = X, y = y))
 }
 
@@ -122,6 +130,7 @@ dgp_pure_interaction <- function(n) {
 dgp_sparse <- function(n) {
   p <- 100
   X <- as.data.frame(matrix(rnorm(n * p), n, p))
+  X <- as.data.frame(lapply(X, function(col) (col - min(col)) / (max(col) - min(col)))) # scalo su [0,1] per PRForest
   beta <- rep(0, p); beta[c(5, 20, 50)] <- c(2, -3, 1.5)
   y <- as.matrix(X) %*% beta + rnorm(n, 0, 1)
   return(list(X = X, y = as.vector(y)))
@@ -130,7 +139,7 @@ dgp_sparse <- function(n) {
 # 4. Regressione piecewise / tree-friendly
 # Motivazione: i metodi ad albero dovrebbero eccellere qui, confronto utile.
 dgp_piecewise <- function(n) {
-  x <- runif(n, 0, 10)
+  x <- runif(n, 0, 1)
   y <- ifelse(x < 3, 2*x,
               ifelse(x < 6, -x + 10,
                      0.5 * x + 3)) + rnorm(n, 0, 0.3)
@@ -142,16 +151,43 @@ dgp_piecewise <- function(n) {
 # Motivazione: testare robustezza agli outlier e capacità di cogliere struttura latente.
 dgp_latent_outlier <- function(n) {
   z <- rnorm(n)
-  X <- data.frame(x1 = z + rnorm(n, 0, 0.1),
-                  x2 = sin(z) + rnorm(n, 0, 0.1),
-                  x3 = rnorm(n))
+  x1 <- z + rnorm(n, 0, 0.1)
+  x2 <- sin(z) + rnorm(n, 0, 0.1)
+  x3 <- rnorm(n)
+  X <- data.frame(x1, x2, x3)
+  X <- as.data.frame(lapply(X, function(col) (col - min(col)) / (max(col) - min(col)))) # scala su [0,1]
   y <- z^2 + rnorm(n, 0, 0.2)
-  # aggiungiamo outlier
   idx <- sample(1:n, size = floor(0.05 * n))
-  y[idx] <- y[idx] + rnorm(length(idx), 20, 5)
+  y[idx] <- y[idx] + rnorm(length(idx), 20, 5) # outlier
   return(list(X = X, y = y))
 }
 
+# 6. Global Nonlinearity (Smooth Nonlinear Function)
+# Motivazione: Testa la capacità di catturare global nonlinearity liscia e non piecewise.
+dgp_smooth_nonlinear <- function(n) {
+  X <- data.frame(x1 = runif(n, 0, 1),
+                  x2 = runif(n, 0, 1))
+  y <- sin(pi * X$x1 * X$x2) + rnorm(n, 0, 0.2)
+  return(list(X = X, y = y))
+}
+
+#PRTrees friendly
+dgp_smooth_additive <- function(n) {
+  # 2 dimensioni su [0,1]^2
+  X <- data.frame(
+    x1 = runif(n),
+    x2 = runif(n)
+  )
+  
+  # funzione smooth: combinazione di sin+cos + componente polinomiale
+  y_true <- sin(2 * pi * X$x1) * cos(2 * pi * X$x2) + 
+    2 * (X$x1 - 0.5)^2 + 3 * (X$x2 - 0.5)^3
+  
+  # rumore omoschedastico
+  y <- y_true + rnorm(n, mean = 0, sd = 0.1)
+  
+  return(list(X = X, y = y))
+}
 
 ### Classification
 
