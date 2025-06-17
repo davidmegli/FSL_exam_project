@@ -14,36 +14,15 @@ fit_pr_forest <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...
   indices <- vector("list", n_trees)
   
   for (i in seq_len(n_trees)) {
-    #cat("PRTree fit ",i,"\n")
-    #delay <- 0#.2
-    #cat("        sample\n")
-    #Sys.sleep(delay)
     idx <- sample(seq_len(n), size = floor(sample_frac * n), replace = TRUE)
-    #Sys.sleep(delay)
-    #cat("        indices[[i]] <- idx\n")
-    #Sys.sleep(delay)
     indices[[i]] <- idx
-    #Sys.sleep(delay)
-    #cat("        X_sub <- X[idx, , drop = FALSE]\n")
-    #Sys.sleep(delay)
     X_sub <- X[idx, , drop = FALSE]
-    #Sys.sleep(delay)
-    #cat("        y_sub <- y[idx]\n")
-    #Sys.sleep(delay)
     y_sub <- y[idx]
-    #Sys.sleep(delay)
-    
-    #cat("        Idx length: ",length(idx),", first index: ",idx[1],"\n")
     
     if (nrow(X_sub) < 2 || any(apply(X_sub, 2, var, na.rm = TRUE) == 0)) {
       message("Salto albero ", i, ": varianza nulla o troppo pochi dati")
       next
     }
-    #Sys.sleep(delay)
-    #cat("        PRTree ",i,"/",n_trees," fit\n")
-    #cat("        y[idx]:", y_sub,"\n")
-    #cat("        ncol: ",ncol(X_sub),", nrow: ",nrow(X_sub),"\n")
-    #Sys.sleep(delay)
     tree <- tryCatch(
       PRTree::pr_tree(y_sub, X_sub, max_terminal_nodes = 50, max_depth = 10, cp = 0.001, n_min = 3, ...),
       error = function(e) {
@@ -51,15 +30,8 @@ fit_pr_forest <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...
         return(NULL)
       }
     )
-    #cat("Y_SUB: ",y_sub,"\n")
-    #cat("PREDS: ",PRTree:::predict.prtree(tree,as.matrix(X_sub))$yhat,"\n") # Ho aggiunto questa riga per verificare il funzionamento della funzione
-    # predict, e crasha sempre !!! anche usando as.matrix
-    #Sys.sleep(delay)
-    #cat("        fit done\n")
     if (is.null(tree)) next
     forest[[i]] <- tree
-    #Sys.sleep(delay)
-    #cat("        end\n")
   }
   
   class(forest) <- "prforest"
@@ -77,11 +49,7 @@ predict_pr_forest <- function(object, newdata) {
   newdata <- as.matrix(newdata)
   
   for (i in seq_len(n_trees)) {
-    #cat("Pred Tree ",i,"\n")
-
-    
     pred <- PRTree:::predict.prtree(object[[i]], newdata)
-    #cat("Tree ",i," pred: ",pred,"\n")
     
     if (is.list(pred) && "yhat" %in% names(pred)) {
       preds[, i] <- pred$yhat
@@ -90,7 +58,6 @@ predict_pr_forest <- function(object, newdata) {
     } else {
       stop("Unexpected prediction output in PRForest.")
     }
-    #cat("Tree ",i," preds: ",preds[,i],"\n")
   }
   
   yhat_mean <- rowMeans(preds)
@@ -108,8 +75,6 @@ test1 <- function(){
   tree <- PRTree::pr_tree(y_train, X_train)
   pred <- PRTree:::predict.prtree(tree, X_train)
   
-  #cat("y_train: ",y_train,"\n\n")
-  #cat("pred_train: ",pred$yhat,"\n\n")
   mse_train <- mean((y_train-pred$yhat)^2)
   cat("Mse train: ",mse_train,"\n")
   
@@ -121,8 +86,6 @@ test1 <- function(){
   cat("Mse test: ",mse_test,"\n")
   
   plot(y_test, pred$yhat, col="blue", pch=16)
-  #plot(X_test, y_test, col="blue", pch=16)
-  #points(X_test, pred$yhat, col="red", pch=3)
 }
 
 test2 <- function() {
