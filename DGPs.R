@@ -189,6 +189,19 @@ dgp_smooth_additive <- function(n) {
   return(list(X = X, y = y))
 }
 
+dgp_global_smooth_interaction <- function(n) {
+  X <- data.frame(
+    x1 = runif(n),
+    x2 = runif(n),
+    x3 = runif(n)
+  )
+  
+  y <- sin(2 * pi * X$x1) * cos(2 * pi * X$x2) + 0.5 * (X$x3 - 0.5)^3 + rnorm(n, 0, 0.1)
+  
+  return(list(X = X, y = y))
+}
+
+
 ### Classification
 
 # 6. XOR logico (interazioni)

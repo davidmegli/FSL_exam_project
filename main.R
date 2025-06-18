@@ -131,6 +131,8 @@ dgp_reg_list <- list(
 #)
 #names(dgp_reg_list) <- c("nonlin_homo", "pure_interaction", "sparse", "piecewise", "latent_outlier", "smooth_nonlinear")
 names(dgp_reg_list) <- c("smooth_additive","nonlin_homo", "pure_interaction", "piecewise", "latent_outlier", "smooth_nonlinear")
+#dgp_reg_list <- list(dgp_global_smooth_interaction)
+#names(dgp_reg_list) <- c("dgp_global_smooth_interaction")
 #names(dgp_reg_list) <- c("pure_interaction", "sparse", "piecewise", "latent_outlier")
 #names(dgp_reg_list) <- c("sparse","piecewise", "latent_outlier")
 
