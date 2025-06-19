@@ -53,8 +53,41 @@ model_list <- list(
     fit = function(X, y, ...) fit_pr_forest(y = y, X = X, ...),
     predict = function(model, newdata) predict_pr_forest(model, newdata)$yhat,
     params = list(
-      list(n_trees = 50, sample_frac = 1.0, seed = 42),
-      list(n_trees = 100, sample_frac = 1.0, seed = 42)
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5)
     )
   ),
   

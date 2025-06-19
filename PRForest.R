@@ -7,7 +7,7 @@
 library(PRTree)
 
 # Funzione di training: ensemble di PR Trees
-fit_pr_forest <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...) {
+fit_pr_forest_deprecated <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...) {
   set.seed(seed)
   n <- length(y)
   forest <- vector("list", n_trees)
@@ -41,7 +41,7 @@ fit_pr_forest <- function(y, X, n_trees = 100, sample_frac = 0.8, seed = 42, ...
 }
 
 # Funzione di predizione: aggrega le yhat e le probabilità
-predict_pr_forest <- function(object, newdata) {
+predict_pr_forest_deprecated <- function(object, newdata) {
   stopifnot(class(object) == "prforest")
   n_trees <- attr(object, "n_trees")
   preds <- matrix(0, nrow = nrow(newdata), ncol = n_trees)
@@ -62,6 +62,124 @@ predict_pr_forest <- function(object, newdata) {
   
   yhat_mean <- rowMeans(preds)
   list(yhat = yhat_mean, all_predictions = preds) # TODO: return only predictions? (look for compatibility in simulations)
+}
+
+
+library(PRTree)
+
+fit_pr_forest <- function(y, X, 
+                          n_trees = 100, 
+                          sample_frac = 0.8, 
+                          mtry = NULL, 
+                          sigma_grid = NULL, 
+                          seed = 42, 
+                          max_terminal_nodes = 50, 
+                          max_depth = 10, 
+                          cp = 0.001, 
+                          n_min = 3, 
+                          verbose = FALSE, 
+                          ...) {
+  set.seed(seed)
+  n <- length(y)
+  p <- ncol(X)
+  forest <- vector("list", n_trees)
+  indices <- vector("list", n_trees)
+  
+  if (is.null(mtry)) mtry <- floor(sqrt(p))  # default RF rule
+  
+  for (i in seq_len(n_trees)) {
+    idx <- sample(seq_len(n), size = floor(sample_frac * n), replace = TRUE)
+    indices[[i]] <- idx
+    X_sub <- X[idx, , drop = FALSE]
+    y_sub <- y[idx]
+    
+    features <- sample(seq_len(p), mtry)
+    X_sub_feat <- X_sub[, features, drop = FALSE]
+    
+    # sigma tuning if requested
+    if (!is.null(sigma_grid)) {
+      best_sigma <- sigma_grid[1]
+      best_mse <- Inf
+      
+      for (sigma_val in sigma_grid) {
+        tree <- tryCatch(
+          PRTree::pr_tree(y_sub, X_sub_feat,
+                          sigma = rep(sigma_val, length(features)),
+                          max_terminal_nodes = max_terminal_nodes,
+                          max_depth = max_depth,
+                          cp = cp,
+                          n_min = n_min,
+                          ...),
+          error = function(e) NULL
+        )
+        if (!is.null(tree)) {
+          preds <- predict(tree, X_sub_feat)$yhat
+          mse <- mean((y_sub - preds)^2)
+          if (mse < best_mse) {
+            best_mse <- mse
+            best_sigma <- sigma_val
+          }
+        }
+      }
+      final_sigma <- rep(best_sigma, length(features))
+    } else {
+      final_sigma <- NULL
+    }
+    
+    # Fit final tree
+    tree <- tryCatch(
+      PRTree::pr_tree(y_sub, X_sub_feat,
+                      sigma = final_sigma,
+                      max_terminal_nodes = max_terminal_nodes,
+                      max_depth = max_depth,
+                      cp = cp,
+                      n_min = n_min,
+                      ...),
+      error = function(e) {
+        if (verbose) message("Tree ", i, " failed: ", e$message)
+        return(NULL)
+      }
+    )
+    
+    if (!is.null(tree)) {
+      tree$features <- features  # salva feature usate
+      forest[[i]] <- tree
+    }
+  }
+  
+  class(forest) <- "prforest"
+  attr(forest, "indices") <- indices
+  attr(forest, "n_trees") <- n_trees
+  forest
+}
+
+
+predict_pr_forest <- function(object, newdata) {
+  stopifnot(class(object) == "prforest")
+  n_trees <- attr(object, "n_trees")
+  preds <- matrix(0, nrow = nrow(newdata), ncol = n_trees)
+  
+  newdata <- as.matrix(newdata)
+  
+  for (i in seq_len(n_trees)) {
+    tree <- object[[i]]
+    if (is.null(tree)) next  # in caso qualche albero sia NULL (saltato nel fitting)
+    features <- tree$features
+    newdata_sub <- newdata[, features, drop = FALSE]
+    
+    pred <- PRTree:::predict.prtree(tree, newdata_sub)
+    
+    if (is.list(pred) && "yhat" %in% names(pred)) {
+      preds[, i] <- pred$yhat
+    } else if (is.numeric(pred)) {
+      preds[, i] <- pred
+    } else {
+      stop("Unexpected prediction output in PRForest.")
+    }
+  }
+  
+  yhat_mean <- rowMeans(preds, na.rm = TRUE)  # media su alberi validi
+  list(yhat = yhat_mean, all_predictions = preds)
 }
 
 test1 <- function(){
