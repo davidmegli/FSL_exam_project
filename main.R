@@ -40,8 +40,6 @@ import_libraries <- function() {
 
 
 import_libraries()
-#p=3 # TODO: se p as the number of variables for each dataset, when fitting on datasets
-##### declaration of models
 model_list <- list(
 
   Lasso = list(
@@ -369,27 +367,3 @@ save_summary_table_csv(
   output_dir = "results/DGP",
   file_prefix = "dgp_summary"
 )
-
-
-#' TODO:
-#' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)
-#' e avere un'insieme di stime (miglior approccio statistico)
-#' - confrontare anche con LightGBM
-#' - Da valutare: BoostForest, 
-#' - Confrontare con 10 datasets (classification / regression) + 1 DGP ottimale per ogni metodo
-#' - Confrontare con XGBoost, RandomForest, CART, Adaboost (vedi paper ERF)
-#' - Confronti: qualitativo (boxplots per vari DGP e datasets) + quantitativo (RMSE(AVG+STD) 4 regression/Classification accuracy(AVG+STD))
-#' -> prendere spunto da https://arxiv.org/pdf/2003.09737 per confronti tabellari
-#' - Tunare iperparametri di ogni modello con nested cross validation
-#' - Per il confronto usare i modelli con migliori iperparametri
-#' - Usare + metriche di confronto
-#' - DGP: montecarlo simulations + CV / Datasets:Nested CV
-#' 
-#' - Implementare comparison function con dataset con nested cv
-#' - assicurarsi che i DGP siano corretti e ideali per i modelli
-#' - Implementare funzione wrapper che esegue comparazioni con diversi DGP e dataset (regressione + classificazione)
-#' 
-#' 
-#' LightGBM DGBF BoostForest <- confrontare?
-#' studia papers e background (chiedi i paper necessari x la teoria)
-#' scrivi bozza script
