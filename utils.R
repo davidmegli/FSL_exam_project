@@ -129,6 +129,7 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
       best_model <- NULL
       best_params <- NULL
       
+      i <- 1
       for (params in param_grid) {
         scores <- c()
         folds <- sample(rep(1:K, length.out = nrow(X_train)))
@@ -147,7 +148,6 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
               y_tr <- factor(y_tr)
             }
           }
-          
           model <- tryCatch(
             do.call(fit_fun, c(list(X = X_tr, y = y_tr), params)),
             error = function(e) NULL
@@ -168,14 +168,16 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             acc <- mean(preds == y_val)
             scores <- c(scores, 1 - acc)
           }
-          #cat("Scores: ",scores,"\n")
-          #cat("y_val: ",y_val,"\n")
-          #cat("preds: ",preds,"\n")
+          # cat("Scores: ",scores,"\n")
+          # cat("y_val: ",y_val,"\n")
+          # cat("preds: ",preds,"\n")
         }
+        # Cross validation done
         
         if (length(scores) == 0 || all(is.na(scores))) next
         
         mean_score <- mean(scores, na.rm = TRUE)
+        #cat("Mean score ",i,": ",mean_score,"\n")
         if (mean_score < best_score) {
           best_score <- mean_score
           best_params <- params
@@ -184,6 +186,7 @@ montecarlo_compare_models_tuned <- function(dgp_fun,
             error = function(e) NULL
           )
         }
+        i <-  i+1
       }
       
       if (!is.null(best_model)) {
@@ -299,6 +302,7 @@ montecarlo_compare_plot_models <- function(
     model_list,
     n_train,
     n_test,
+    model_names = NULL,
     task = "reg",
     B = 5,
     K = 3,
@@ -346,7 +350,7 @@ montecarlo_compare_plot_models <- function(
   # Salva i plot per ogni metrica
   unique_metrics <- unique(metrics_long$Metric)
   for (m in unique_metrics) {
-    save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DGP", run_name = run_name)
+    save_metric_boxplot(metrics_long = metrics_long, metric_name = m, output_dir = "plots/DGP", run_name = run_name, model_names = model_names)
   }
   
   save_metrics_to_csv(metrics_long, output_dir = "results/DGP", run_name = run_name)
@@ -360,6 +364,7 @@ montecarlo_compare_plot_models_multiDGP <- function(
     model_list,
     n_train,
     n_test,
+    model_names = NULL,
     task = "reg",
     B = 5,
     K = 3,
@@ -385,7 +390,8 @@ montecarlo_compare_plot_models_multiDGP <- function(
       B = B,
       K = K,
       seed = seed,
-      run_name = run_name
+      run_name = run_name,
+      model_names = model_names
     )
     
     results_all[[dgp_name]] <- results
@@ -397,9 +403,14 @@ montecarlo_compare_plot_models_multiDGP <- function(
 
 
 
-save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots", run_name = "") {
+save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots", run_name = "", model_names = NULL) {
   # Filtro metrica desiderata
   plot_data <- metrics_long %>% filter(Metric == metric_name)
+  
+  # Ordina Model come factor con livelli specificati da model_names (se fornito)
+  if (!is.null(model_names)) {
+    plot_data$Model <- factor(plot_data$Model, levels = model_names)
+  }
   
   # Crea grafico
   p <- ggplot(plot_data, aes(x = Model, y = Value, fill = Model)) +
@@ -411,9 +422,10 @@ save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots",
     theme_minimal() +
     theme(
       legend.position = "none",
-      text = element_text(size = 18),          # dimensione base del testo
+      text = element_text(size = 16),          # dimensione base del testo
       axis.title.y = element_text(size = 22),  # dimensione titolo asse y
-      axis.text = element_text(size = 16)      # dimensione numeri sugli assi
+      axis.text = element_text(size = 15),      # dimensione numeri sugli assi
+      axis.text.x = element_text(angle = 45, hjust = 1)
     )
   
   # Crea timestamp per nome file
@@ -422,7 +434,7 @@ save_metric_boxplot <- function(metrics_long, metric_name, output_dir = "plots",
   filepath <- file.path(output_dir, filename)
   
   # Salva in PNG
-  ggsave(filepath, plot = p, width = 8, height = 5, dpi = 100)
+  ggsave(filepath, plot = p, width = 10, height = 5, dpi = 100)
   
   message("Plot salvato in: ", filepath)
 }
@@ -775,7 +787,14 @@ cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg
       p <- ggplot(subset(df_dataset_long, Metric == m), aes(x = Model, y = Value, fill = Model)) +
         geom_boxplot() +
         ggtitle(paste("Boxplot for", dataset_name, "-", m)) +
-        theme_minimal()
+        theme_minimal()+
+        theme(
+          legend.position = "none",
+          text = element_text(size = 16),          # dimensione base del testo
+          axis.title.y = element_text(size = 22),  # dimensione titolo asse y
+          axis.text = element_text(size = 15),      # dimensione numeri sugli assi
+          axis.text.x = element_text(angle = 45, hjust = 1)
+        )
       
       if (!is.null(run_name)) {
         plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, "_", run_name, ".png"))
@@ -810,7 +829,7 @@ cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg
     
     if (!is.null(run_name)) {
       heatmap_path <- file.path(output_dir, paste0("heatmap_", dataset_name, "_", run_name, ".png"))
-      ggsave(heatmap_path, plot = p_heatmap, width = 8, height = 5)
+      ggsave(heatmap_path, plot = p_heatmap, width = 10, height = 5)
     }
   }
   
@@ -827,14 +846,18 @@ cv_compare_plot_datasets_multi <- function(dataset_list, model_list, task = "reg
 
 
 cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg", 
-                                           K_outer = 5, K_inner = 3, seed = 42) {
+                                           K_outer = 5, K_inner = 3, seed = 42, model_names = NULL) {
   set.seed(seed)
   n <- nrow(dataset$data)
   folds_outer <- caret::createFolds(1:n, k = K_outer, list = TRUE)
   
   metrics_per_model <- list()
   
-  for (model_name in names(model_list)) {
+  if (is.null(model_names)) {
+    model_names <- names(model_list)
+  }
+  
+  for (model_name in model_names) {
     cat("  Model", model_name, "\n")
     fit_fun <- model_list[[model_name]]$fit
     predict_fun <- model_list[[model_name]]$predict
@@ -846,6 +869,7 @@ cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg",
     mae_list <- c()
     rmse_list <- c()
     r2_list <- c()
+    mse_std_list <- c()
     
     for (k in seq_along(folds_outer)) {
       cat("    outer cross-validation: ",k,"/",K_outer,"\n")
@@ -904,12 +928,15 @@ cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg",
       if (!is.null(final_model)) {
         y_pred <- tryCatch(predict_fun(final_model, X_test), error = function(e) NULL)
         if (!is.null(y_pred)) {
-          mse_val <- mean((y_test - y_pred)^2)
+          errors_squared <- (y_test - y_pred)^2
+          mse_val <- mean(error_squared)
+          mse_std_val <- std(error_squared)
           mae_val <- mean(abs(y_test - y_pred))
           rmse_val <- sqrt(mse_val)
           r2_val <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
           
           mse_list <- c(mse_list, mse_val)
+          mse_std_val <- c(mse_std_list, mse_std_val)
           mae_list <- c(mae_list, mae_val)
           rmse_list <- c(rmse_list, rmse_val)
           r2_list <- c(r2_list, r2_val)
@@ -919,6 +946,7 @@ cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg",
     
     metrics_per_model[[model_name]] <- list(
       MSE = mse_list,
+      MSE_STD = mse_std_list,
       MAE = mae_list,
       RMSE = rmse_list,
       R2 = r2_list
@@ -930,7 +958,7 @@ cv_compare_models_nested_tuned_v2 <- function(dataset, model_list, task = "reg",
 
 cv_compare_plot_datasets_multi_v2 <- function(dataset_list, model_list, task = "reg",
                                            K_outer = 5, K_inner = 3, seed = 42,
-                                           output_dir = "results/Dataset", run_name = NULL) {
+                                           output_dir = "results/Dataset", run_name = NULL, model_names = NULL) {
   all_metrics_long <- list()
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
   if (is.null(run_name)) {
@@ -947,7 +975,8 @@ cv_compare_plot_datasets_multi_v2 <- function(dataset_list, model_list, task = "
       task = task,
       K_outer = K_outer,
       K_inner = K_inner,
-      seed = seed
+      seed = seed,
+      model_names = model_names
     )
     
     metrics_this_dataset <- list()
@@ -974,14 +1003,30 @@ cv_compare_plot_datasets_multi_v2 <- function(dataset_list, model_list, task = "
     # Boxplot per ogni metrica
     metrics <- unique(df_dataset_long$Metric)
     for (m in metrics) {
-      p <- ggplot(subset(df_dataset_long, Metric == m), aes(x = Model, y = Value, fill = Model)) +
+      
+      plot_data <- subset(df_dataset_long, Metric == m)
+      
+      # Ordina Model come factor secondo model_names
+      if (!is.null(model_names)) {
+        plot_data$Model <- factor(plot_data$Model, levels = model_names)
+      }
+      
+      p <- ggplot(plot_data, aes(x = Model, y = Value, fill = Model)) +
         geom_boxplot() +
         ggtitle(paste("Boxplot for", dataset_name, "-", m)) +
-        theme_minimal()
+        theme_minimal()+
+        theme(
+          legend.position = "none",
+          text = element_text(size = 16),          # dimensione base del testo
+          axis.title.y = element_text(size = 22),  # dimensione titolo asse y
+          axis.text = element_text(size = 15),      # dimensione numeri sugli assi
+          axis.text.x = element_text(angle = 45, hjust = 1)
+        )
       
       plot_path <- file.path(output_dir, paste0("boxplot_", dataset_name, "_", m, "_", run_name, ".png"))
       ggsave(plot_path, plot = p, width = 10, height = 5)
     }
+    
     
     # Heatmap della media
     if (!is.null(df_dataset_long) && nrow(df_dataset_long) > 0) {
@@ -1002,7 +1047,7 @@ cv_compare_plot_datasets_multi_v2 <- function(dataset_list, model_list, task = "
         ggtitle(paste("Heatmap for", dataset_name))
       
       heatmap_path <- file.path(output_dir, paste0("heatmap_", dataset_name, "_", run_name, ".png"))
-      ggsave(heatmap_path, plot = p_heatmap, width = 8, height = 5)
+      ggsave(heatmap_path, plot = p_heatmap, width = 10, height = 5)
     } else {
       warning("df_dataset_long è NULL o vuoto: summary_df non può essere calcolato.")
     }

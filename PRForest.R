@@ -64,12 +64,15 @@ predict_pr_forest_deprecated <- function(object, newdata) {
   list(yhat = yhat_mean, all_predictions = preds) # TODO: return only predictions? (look for compatibility in simulations)
 }
 
+console.log <- function(text, time = 0.2) {
+  cat(text)
+  Sys.sleep(time)
+}
 
 library(PRTree)
-
 fit_pr_forest <- function(y, X, 
                           n_trees = 100, 
-                          sample_frac = 0.8, 
+                          sample_frac = 1.0, 
                           mtry = NULL, 
                           sigma_grid = NULL, 
                           seed = 42, 
@@ -79,80 +82,64 @@ fit_pr_forest <- function(y, X,
                           n_min = 3, 
                           verbose = FALSE, 
                           ...) {
-  set.seed(seed)
-  n <- length(y)
+  n <- nrow(X)
   p <- ncol(X)
+  if (is.null(mtry)) {mtry <- floor(p/3)}
+  if(mtry < 1) {mtry <- floor(sqrt(p))}
+  if(mtry < 1) {mtry <- 1}
+  
+  #console.log(paste0("mtry: ",mtry," | n_trees: ",n_trees,"sigma_grid: ",paste(sigma_grid, collapse = " "),"max_depth: ",max_depth," cp: ", cp, "n_min: ",n_min,"\n"))
   forest <- vector("list", n_trees)
   indices <- vector("list", n_trees)
-  
-  if (is.null(mtry)) mtry <- floor(sqrt(p))  # default RF rule
-  
-  for (i in seq_len(n_trees)) {
-    idx <- sample(seq_len(n), size = floor(sample_frac * n), replace = TRUE)
+  #verbose=TRUE
+  for (i in 1:n_trees) {
+    if (verbose) message("Fitting tree ", i, "/", n_trees)
+    
+    # Campionamento con rimpiazzo (bootstrapping)
+    idx <- sample(1:n, size = ceiling(n * sample_frac), replace = TRUE)
     indices[[i]] <- idx
-    X_sub <- X[idx, , drop = FALSE]
-    y_sub <- y[idx]
+    X_boot <- X[idx, , drop = FALSE]
+    y_boot <- y[idx]
     
-    features <- sample(seq_len(p), mtry)
-    X_sub_feat <- X_sub[, features, drop = FALSE]
+    # Selezione di un sottoinsieme casuale di variabili
+    features <- sample(1:p, mtry)
+    X_sub <- X_boot[, features, drop = FALSE]
     
-    # sigma tuning if requested
-    if (!is.null(sigma_grid)) {
-      best_sigma <- sigma_grid[1]
-      best_mse <- Inf
-      
-      for (sigma_val in sigma_grid) {
-        tree <- tryCatch(
-          PRTree::pr_tree(y_sub, X_sub_feat,
-                          sigma = rep(sigma_val, length(features)),
-                          max_terminal_nodes = max_terminal_nodes,
-                          max_depth = max_depth,
-                          cp = cp,
-                          n_min = n_min,
-                          ...),
-          error = function(e) NULL
-        )
-        if (!is.null(tree)) {
-          preds <- predict(tree, X_sub_feat)$yhat
-          mse <- mean((y_sub - preds)^2)
-          if (mse < best_mse) {
-            best_mse <- mse
-            best_sigma <- sigma_val
-          }
-        }
-      }
-      final_sigma <- rep(best_sigma, length(features))
-    } else {
-      final_sigma <- NULL
-    }
-    
-    # Fit final tree
-    tree <- tryCatch(
-      PRTree::pr_tree(y_sub, X_sub_feat,
-                      sigma = final_sigma,
-                      max_terminal_nodes = max_terminal_nodes,
-                      max_depth = max_depth,
-                      cp = cp,
-                      n_min = n_min,
-                      ...),
-      error = function(e) {
-        if (verbose) message("Tree ", i, " failed: ", e$message)
-        return(NULL)
-      }
-    )
-    
-    if (!is.null(tree)) {
-      tree$features <- features  # salva feature usate
+    # Chiamata diretta a pr_tree con la grid completa
+    tree <- try(PRTree::pr_tree(y = y_boot, X = X_sub,
+                        sigma_grid = sigma_grid,
+                        max_depth = max_depth,
+                        cp = cp,
+                        n_min = n_min), silent = FALSE)
+    #console.log(paste0("Fit done for tree: ",i,"\n"), 0)
+    #console.log(paste0("After Fit, is.null(tree): ",is.null(tree),"\n"))
+    if (!inherits(tree, "try-error") && !is.null(tree)) {
+      tree$features <- features
       forest[[i]] <- tree
     }
   }
   
+  # Rimuove eventuali NULL
+  forest <- Filter(Negate(is.null), forest)
+  
+  
+  if (length(forest) == 0) stop("All trees failed to build.")
+  
   class(forest) <- "prforest"
-  attr(forest, "indices") <- indices
   attr(forest, "n_trees") <- n_trees
-  forest
+  attr(forest, "indices") <- indices
+  
+  ## TEST, remove
+  # console.log("Predicting...\n")
+  # preds <- predict_pr_forest(forest,X)
+  # console.log("Prediction done\n")
+  # first_10_preds <- preds$yhat[1:10]
+  # first_10_GT <- y[1:10]
+  # console.log(paste0("First 10 preds: ",first_10_preds,"\n")) # stampa per ognuno diverse righe, i valori non tornano con le GT?
+  # console.log(paste0("First 10 GT: ",first_10_GT,"\n"))# capire perché viene fuori 0
+  
+  return(forest)
 }
-
 
 predict_pr_forest <- function(object, newdata) {
   stopifnot(class(object) == "prforest")
@@ -166,7 +153,6 @@ predict_pr_forest <- function(object, newdata) {
     if (is.null(tree)) next  # in caso qualche albero sia NULL (saltato nel fitting)
     features <- tree$features
     newdata_sub <- newdata[, features, drop = FALSE]
-    
     pred <- PRTree:::predict.prtree(tree, newdata_sub)
     
     if (is.list(pred) && "yhat" %in% names(pred)) {
@@ -194,14 +180,14 @@ test1 <- function(){
   pred <- PRTree:::predict.prtree(tree, X_train)
   
   mse_train <- mean((y_train-pred$yhat)^2)
-  cat("Mse train: ",mse_train,"\n")
+  #cat("Mse train: ",mse_train,"\n")
   
   pred <- PRTree:::predict.prtree(tree, X_test)
   
-  cat("y_test: ",y_test,"\n\n")
-  cat("pred_test: ",pred$yhat,"\n\n")
+  #cat("y_test: ",y_test,"\n\n")
+  #cat("pred_test: ",pred$yhat,"\n\n")
   mse_test <- mean((y_test-pred$yhat)^2)
-  cat("Mse test: ",mse_test,"\n")
+  #cat("Mse test: ",mse_test,"\n")
   
   plot(y_test, pred$yhat, col="blue", pch=16)
 }

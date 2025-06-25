@@ -34,63 +34,53 @@ import_libraries <- function() {
   library(lars) # diabetes
   library(hdi) # riboflavin
   library(readr) # per leggere il bike dataset
+  library(glmnet)
+  library(rpart)
 }
 
 
 import_libraries()
+#p=3 # TODO: se p as the number of variables for each dataset, when fitting on datasets
 ##### declaration of models
 model_list <- list(
-  RaFFLE = list(
-    fit = raffle,
-    predict = function(model, newdata) predict(model, newdata = newdata),
-    params =  list(
-      list(nTrees = 50, alpha = 0.5, maxDepth = 10),
-      list(nTrees = 100, alpha = 0.5, maxDepth = 10)
-    )
-  ),
-  
-  PRForest = list(
-    fit = function(X, y, ...) fit_pr_forest(y = y, X = X, ...),
-    predict = function(model, newdata) predict_pr_forest(model, newdata)$yhat,
+
+  Lasso = list(
+    fit = function(X, y, ...) glmnet::glmnet(as.matrix(X), y, alpha = 1, ...),
+    predict = function(model, newdata) predict(model, as.matrix(newdata), s = "lambda.min"),
     params = list(
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
-      
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
-      list(n_trees = 50, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
-      
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
-      
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
-      list(n_trees = 100, sample_frac = 1.0, mtry = floor(sqrt(p)),
-           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5)
+      list(lambda = 0.01),
+      list(lambda = 0.1),
+      list(lambda = 1)
     )
   ),
-  
+  Ridge = list(
+    fit = function(X, y, ...) glmnet::glmnet(as.matrix(X), y, alpha = 0, ...),
+    predict = function(model, newdata) predict(model, as.matrix(newdata), s = "lambda.min"),
+    params = list(
+      list(lambda = 0.01),
+      list(lambda = 0.1),
+      list(lambda = 1)
+    )
+  ),
+  CART = list(
+    fit = function(X, y, ...) rpart::rpart(y ~ ., data = data.frame(y = y, X), method = "anova", ...),
+    predict = function(model, newdata) predict(model, newdata = data.frame(newdata)),
+    params = list(
+      list(cp = 0.01),
+      list(cp = 0.001),
+      list(cp = 0.0001)
+    )
+  ),
+  PILOT = list(
+    fit = function(X, y, ...) pilot(X, y, ...),
+    predict = function(model, newdata) predict(model, newdata = newdata),
+    params = list(
+      list(dfs = c(1, 2, 5, 5, 7, 5), min_sample_leaf = 5, min_sample_alpha = 5,
+           min_sample_fit = 10, maxDepth = 20, maxModelDepth = 100, rel_tolerance = 1e-04),
+      list(dfs = c(1, 3, 5, 7, 9, 5), min_sample_leaf = 10, min_sample_alpha = 10,
+           min_sample_fit = 20, maxDepth = 15, maxModelDepth = 80, rel_tolerance = 1e-04)
+    )
+  ),
   RandomForest = list(
     fit = function(X, y, ...) randomForest::randomForest(x = X, y = y, ...),
     predict = function(model, newdata) predict(model, newdata = newdata),
@@ -99,7 +89,7 @@ model_list <- list(
       list(ntree = 100)
     )
   ),
-  
+
   XGBoost = list(
     fit = function(X, y, ...) {
       dtrain <- xgboost::xgb.DMatrix(data = as.matrix(X), label = y)
@@ -141,34 +131,80 @@ model_list <- list(
       list(learning_rate = 0.05, num_leaves = 15, max_depth = -1),
       list(learning_rate = 0.1, num_leaves = 15, max_depth = -1)
     )
+  ),
+  RaFFLE = list(
+    fit = raffle,
+    predict = function(model, newdata) predict(model, newdata = newdata),
+    params =  list(
+      list(nTrees = 50, alpha = 0.3, maxDepth = 10),
+      list(nTrees = 50, alpha = 0.5, maxDepth = 10),
+      list(nTrees = 50, alpha = 0.7, maxDepth = 10),
+      list(nTrees = 50, alpha = 0.8, maxDepth = 10),
+      list(nTrees = 100, alpha = 0.3, maxDepth = 10),
+      list(nTrees = 100, alpha = 0.5, maxDepth = 10),
+      list(nTrees = 100, alpha = 0.7, maxDepth = 10),
+      list(nTrees = 100, alpha = 0.8, maxDepth = 10)
+    )
+  ),
+
+  PRForest = list(
+    fit = function(X, y, ...) fit_pr_forest(y = y, X = X, ...),
+    predict = function(model, newdata) predict_pr_forest(model, newdata)$yhat,
+    params = list(
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 50, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5),
+      
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.001, n_min = 5),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 3),
+      list(n_trees = 100, sample_frac = 1.0,
+           sigma_grid = c(0.1, 0.3, 0.5, 1.0), max_depth = 10, cp = 0.01, n_min = 5)
+    )
   )
 )
 
+model_names <- names(model_list)
 ##### DGPs
 dgp_reg_list <- list(
+  dgp_smooth_noisy,
+  dgp_nonlin_hetero,
+  dgp_lin,
   dgp_smooth_additive,
   dgp_nonlin_homo,
   dgp_pure_interaction,
-  #dgp_sparse,
   dgp_piecewise,
   dgp_latent_outlier,
-  dgp_smooth_nonlinear
+  dgp_smooth_nonlinear,
+  dgp_global_smooth_interaction
 )
-
-#dgp_clas_list <- list(
-#  dgp_xor,
-#  dgp_logit_noise,
-#  dgp_hierarchy,
-#  dgp_imbalanced,
-#  dgp_moons
-#)
-#names(dgp_reg_list) <- c("nonlin_homo", "pure_interaction", "sparse", "piecewise", "latent_outlier", "smooth_nonlinear")
-names(dgp_reg_list) <- c("smooth_additive","nonlin_homo", "pure_interaction", "piecewise", "latent_outlier", "smooth_nonlinear")
-#dgp_reg_list <- list(dgp_global_smooth_interaction)
-#names(dgp_reg_list) <- c("dgp_global_smooth_interaction")
-#names(dgp_reg_list) <- c("pure_interaction", "sparse", "piecewise", "latent_outlier")
-#names(dgp_reg_list) <- c("sparse","piecewise", "latent_outlier")
-
+names(dgp_reg_list) <- c("smooth_noisy","nonlin_hetero","linear","smooth_additive", "nonlin_homo", "pure_interaction", "piecewise", "latent_outlier", "smooth_nonlinear","global_smooth_interaction")
 # Predict and compare on DGPs
 results_reg_dgp <- montecarlo_compare_plot_models_multiDGP(
   dgp_list = dgp_reg_list,
@@ -178,10 +214,12 @@ results_reg_dgp <- montecarlo_compare_plot_models_multiDGP(
   task = "reg",
   B = 10,
   K = 3,
-  seed = 42
+  seed = 42,
+  model_names = model_names
 )
 
 save_summary_table_csv(
+  
   results_all = results_reg_dgp,
   metric_name = "mse",
   output_dir = "results/DGP",
@@ -307,7 +345,8 @@ results_nested_cv <- cv_compare_plot_datasets_multi_v2(
   task = "reg",
   K_outer = 10,
   K_inner = 3,
-  seed = 42
+  seed = 42,
+  model_names = model_names
 )
 
 write.csv(results_nested_cv, paste0("dataset_comparison_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"),".csv"), row.names = FALSE)
@@ -331,61 +370,6 @@ save_summary_table_csv(
   file_prefix = "dgp_summary"
 )
 
-
-# Dataset di classificazione
-data(PimaIndiansDiabetes)  # mlbench
-data(Sonar)                # mlbench
-data(Ionosphere)           # mlbench
-data(Glass)                # mlbench
-data(Smarket)              # ISLR
-
-class_data_list <- list(
-  pima = split_dataset(PimaIndiansDiabetes, "diabetes"),
-  sonar = split_dataset(Sonar, "Class"),
-  ionosphere = split_dataset(Ionosphere, "Class"),
-  glass = split_dataset(Glass, "Type"),
-  smarket = split_dataset(Smarket, "Direction")
-)
-# Confronto per classificazione
-results_clas_data <- montecarlo_compare_plot_datasets_multi(
-  dataset_list = class_data_list,
-  model_list = model_list_clas,
-  task = "clas",
-  B = 5,
-  K = 3,
-  seed = 42
-)
-
-save_summary_table_csv(
-  results_all = results_clas_data,
-  metric_name = "acc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_data,
-  metric_name = "auc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_data,
-  metric_name = "f1",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_data,
-  metric_name = "logloss",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
-save_summary_table_csv(
-  results_all = results_clas_data,
-  metric_name = "balanced_acc",
-  output_dir = "results/DGP",
-  file_prefix = "dgp_summary"
-)
 
 #' TODO:
 #' - Esegui nested cross validation per ottimizzare iperparametro per ogni algoritmo (n° alberi?)

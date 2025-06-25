@@ -1,0 +1,8 @@
+"","Lasso","Ridge","CART","PILOT","RandomForest","XGBoost","LightGBM","RaFFLE","PRForest"
+"smooth_additive",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"nonlin_homo",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"pure_interaction",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"piecewise",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"latent_outlier",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"smooth_nonlinear",NA,NA,NA,NA,NA,NA,NA,NA,NA
+"global_smooth_interaction",NA,NA,NA,NA,NA,NA,NA,NA,NA

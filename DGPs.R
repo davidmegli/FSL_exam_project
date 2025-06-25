@@ -109,6 +109,15 @@ dgp_nonlin_hetero <- function(n) {
   return(list(X = X, y = y))
 }
 
+dgp_lin <- function(n) {
+  X <- data.frame(x1 = runif(n, 0, 1),
+                  x2 = runif(n, 0, 1),
+                  x3 = runif(n, 0, 1))
+  y <- 3 * X$x1 - 2 * X$x2 + 1.5 * X$x3 + rnorm(n, 0, 0.3)  # Deviazione standard del rumore: 0.3
+  return(list(X = X, y = y))
+}
+
+
 dgp_nonlin_homo <- function(n) {
   X <- data.frame(x1 = runif(n),   # già in [0,1]
                   x2 = runif(n),
@@ -200,6 +209,31 @@ dgp_global_smooth_interaction <- function(n) {
   
   return(list(X = X, y = y))
 }
+
+dgp_smooth_noisy <- function(n) {
+  X <- data.frame(
+    x1 = runif(n, 0, 1),
+    x2 = runif(n, 0, 1),
+    x3 = runif(n, 0, 1)
+  )
+  
+  # True underlying function is smooth
+  f <- sin(2 * pi * X$x1) + cos(2 * pi * X$x2) + exp(-X$x3)
+  
+  # Add noise to the inputs before generating y
+  noise_x1 <- rnorm(n, 0, 0.05)
+  noise_x2 <- rnorm(n, 0, 0.05)
+  noise_x3 <- rnorm(n, 0, 0.05)
+  x1_noisy <- X$x1 + noise_x1
+  x2_noisy <- X$x2 + noise_x2
+  x3_noisy <- X$x3 + noise_x3
+  
+  f_noisy <- sin(2 * pi * x1_noisy) + cos(2 * pi * x2_noisy) + exp(-x3_noisy)
+  
+  y <- f_noisy + rnorm(n, 0, 0.2)  # Add output noise
+  return(list(X = X, y = y))
+}
+
 
 
 ### Classification
